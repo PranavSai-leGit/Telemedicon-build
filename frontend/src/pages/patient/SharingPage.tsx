@@ -121,11 +121,10 @@ export const SharingPage: React.FC = () => {
 
       {message && (
         <div
-          className={`p-4 rounded-xl border flex items-start space-x-3 text-xs font-medium ${
-            message.type === 'success'
+          className={`p-4 rounded-xl border flex items-start space-x-3 text-xs font-medium ${message.type === 'success'
               ? 'bg-emerald-50 dark:bg-emerald-950/40 border-emerald-200 dark:border-emerald-800 text-emerald-800 dark:text-emerald-200'
               : 'bg-rose-50 dark:bg-rose-950/40 border-rose-200 dark:border-rose-800 text-rose-800 dark:text-rose-200'
-          }`}
+            }`}
         >
           {message.type === 'success' ? (
             <CheckCircle2 className="w-4 h-4 shrink-0 mt-0.5 text-emerald-600 dark:text-emerald-400" />
@@ -256,11 +255,10 @@ export const SharingPage: React.FC = () => {
             return (
               <div
                 key={grant.id}
-                className={`p-4 rounded-xl border transition-all ${
-                  isActive
+                className={`p-4 rounded-xl border transition-all ${isActive
                     ? 'border-teal-200 dark:border-teal-900/60 bg-teal-50/20 dark:bg-teal-950/10'
                     : 'border-slate-200 dark:border-slate-800 bg-slate-50/50 dark:bg-slate-800/20 opacity-75'
-                }`}
+                  }`}
               >
                 <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3">
                   <div>
@@ -269,11 +267,10 @@ export const SharingPage: React.FC = () => {
                         {grant.clinician_name}
                       </h4>
                       <span
-                        className={`text-[10px] font-semibold px-2 py-0.5 rounded-full uppercase tracking-wider border ${
-                          isActive
+                        className={`text-[10px] font-semibold px-2 py-0.5 rounded-full uppercase tracking-wider border ${isActive
                             ? 'bg-emerald-50 dark:bg-emerald-950 text-emerald-700 dark:text-emerald-300 border-emerald-200'
                             : 'bg-rose-50 dark:bg-rose-950 text-rose-700 dark:text-rose-300 border-rose-200'
-                        }`}
+                          }`}
                       >
                         {grant.status}
                       </span>

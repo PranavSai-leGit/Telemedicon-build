@@ -127,7 +127,7 @@ export const PatientReviewPage: React.FC = () => {
         <div className="flex items-center space-x-3">
           <Link
             to="/clinician/dashboard"
-            className="p-2 rounded-xl bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-800 text-slate-500 hover:text-slate-800 dark:hover:text-slate-200 transition-colors"
+            className="p-2 rounded-xl med-btn-secondary"
           >
             <ArrowLeft className="w-5 h-5" />
           </Link>
@@ -136,7 +136,7 @@ export const PatientReviewPage: React.FC = () => {
               <h1 className="text-xl sm:text-2xl font-bold tracking-tight text-slate-900 dark:text-white">
                 Authorized Clinical Record Review
               </h1>
-              <span className="px-2.5 py-0.5 rounded-full text-[10px] font-bold bg-blue-50 dark:bg-blue-950 text-blue-700 dark:text-blue-300 border border-blue-200 dark:border-blue-800">
+              <span className="med-badge med-badge-teal">
                 Patient #{pId}
               </span>
             </div>
@@ -149,16 +149,16 @@ export const PatientReviewPage: React.FC = () => {
         <div className="flex items-center space-x-2">
           <button
             onClick={handleGenerateHandover}
-            className="px-3.5 py-2 text-xs font-semibold bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-800 text-slate-800 dark:text-slate-200 hover:bg-slate-50 dark:hover:bg-slate-800 rounded-xl transition-all shadow-xs flex items-center space-x-1.5"
+            className="med-btn-secondary"
           >
-            <FileCheck2 className="w-4 h-4 text-teal-600 dark:text-teal-400" />
+            <FileCheck2 className="w-4 h-4 text-teal-700 dark:text-teal-400" />
             <span>Generate Handover</span>
           </button>
           <a
             href={api.getHandoverPdfUrl(pId)}
             target="_blank"
             rel="noreferrer"
-            className="px-4 py-2 text-xs font-semibold bg-teal-600 hover:bg-teal-700 text-white rounded-xl shadow-xs shadow-teal-600/30 transition-all flex items-center space-x-1.5"
+            className="med-btn-primary"
           >
             <FileDown className="w-4 h-4" />
             <span>Download Handover PDF</span>
@@ -167,7 +167,7 @@ export const PatientReviewPage: React.FC = () => {
       </div>
 
       {/* Navigation Tabs */}
-      <div className="flex flex-wrap items-center gap-2 border-b border-slate-200/80 dark:border-slate-800 pb-2">
+      <div className="flex flex-wrap items-center gap-2 border-b border-[#DCE5EA] dark:border-slate-800 pb-2">
         {[
           { id: 'discrepancies', label: `Discrepancies (${discrepancies.length})`, icon: AlertTriangle },
           { id: 'timeline', label: `Timeline (${facts.length})`, icon: Clock },
@@ -181,11 +181,7 @@ export const PatientReviewPage: React.FC = () => {
             <button
               key={tab.id}
               onClick={() => setActiveTab(tab.id as any)}
-              className={`px-3.5 py-2 rounded-xl text-xs font-semibold flex items-center space-x-2 transition-all ${
-                isActive
-                  ? 'bg-blue-600 text-white shadow-xs'
-                  : 'bg-white dark:bg-slate-900 border border-slate-200/80 dark:border-slate-800 text-slate-600 dark:text-slate-400 hover:bg-slate-50 dark:hover:bg-slate-800'
-              }`}
+              className={isActive ? 'med-btn-primary' : 'med-btn-secondary'}
             >
               <Icon className="w-4 h-4" />
               <span>{tab.label}</span>
@@ -197,8 +193,8 @@ export const PatientReviewPage: React.FC = () => {
       {/* Tab 1: Medication Reconciliation & Discrepancies */}
       {activeTab === 'discrepancies' && (
         <div className="space-y-6">
-          <div className="p-4 rounded-xl bg-amber-50/50 dark:bg-amber-950/20 border border-amber-200 dark:border-amber-900/50 text-xs text-amber-900 dark:text-amber-200 flex items-start space-x-3">
-            <AlertTriangle className="w-5 h-5 text-amber-600 shrink-0 mt-0.5" />
+          <div className="p-4 rounded-xl bg-amber-50/60 dark:bg-amber-950/20 border border-amber-300/60 dark:border-amber-900/50 text-xs text-amber-900 dark:text-amber-200 flex items-start space-x-3">
+            <AlertTriangle className="w-5 h-5 text-amber-700 dark:text-amber-400 shrink-0 mt-0.5" />
             <div>
               <p className="font-bold">Record Reconciliation Engine</p>
               <p className="text-[11px] text-amber-800 dark:text-amber-300 mt-0.5">
@@ -211,11 +207,11 @@ export const PatientReviewPage: React.FC = () => {
             {discrepancies.map((disc) => (
               <div
                 key={disc.id}
-                className="p-6 rounded-2xl bg-white dark:bg-slate-900 border border-slate-200/80 dark:border-slate-800 shadow-xs space-y-4"
+                className="med-card p-6 space-y-4"
               >
                 <div className="flex flex-col sm:flex-row sm:items-center justify-between pb-3 border-b border-slate-100 dark:border-slate-800 gap-2">
                   <div className="flex items-center space-x-2">
-                    <span className="text-xs font-bold uppercase tracking-wider text-amber-600 dark:text-amber-400">
+                    <span className="text-xs font-bold uppercase tracking-wider text-amber-700 dark:text-amber-400">
                       Potential Discrepancy — Review Required
                     </span>
                     <span className="text-slate-300 dark:text-slate-700">•</span>
@@ -223,12 +219,12 @@ export const PatientReviewPage: React.FC = () => {
                       Type: {disc.discrepancy_type.replace('_', ' ')}
                     </span>
                   </div>
-                  <span className={`text-[10px] font-bold uppercase tracking-wider px-2.5 py-0.5 rounded-full border ${
+                  <span className={`med-badge uppercase tracking-wider ${
                     disc.review_status === 'confirmed'
-                      ? 'bg-emerald-50 dark:bg-emerald-950 text-emerald-700 dark:text-emerald-300 border-emerald-200'
+                      ? 'med-badge-success'
                       : disc.review_status === 'unresolved'
-                      ? 'bg-rose-50 dark:bg-rose-950 text-rose-700 dark:text-rose-300 border-rose-200'
-                      : 'bg-amber-50 dark:bg-amber-950 text-amber-700 dark:text-amber-300 border-amber-200'
+                      ? 'med-badge-error'
+                      : 'med-badge-warning'
                   }`}>
                     Status: {disc.review_status.replace('_', ' ')}
                   </span>
@@ -241,7 +237,7 @@ export const PatientReviewPage: React.FC = () => {
                 {/* Evidence Comparison Boxes */}
                 <div className="grid grid-cols-1 sm:grid-cols-2 gap-3 text-xs">
                   {disc.fact_1 && (
-                    <div className="p-3.5 rounded-xl bg-slate-50 dark:bg-slate-800/40 border border-slate-100 dark:border-slate-800 space-y-1">
+                    <div className="p-3.5 rounded-xl bg-slate-50/70 dark:bg-slate-800/40 border border-slate-200/60 dark:border-slate-800 space-y-1">
                       <span className="text-[10px] uppercase font-bold text-slate-400">Record 1</span>
                       <p className="font-bold text-slate-900 dark:text-white">{disc.fact_1.normalized_value}</p>
                       <p className="text-slate-500 dark:text-slate-400">
@@ -249,7 +245,7 @@ export const PatientReviewPage: React.FC = () => {
                       </p>
                       <button
                         onClick={() => handleInspect(disc.fact_1!.id)}
-                        className="text-teal-600 dark:text-teal-400 font-medium hover:underline text-[11px] pt-1"
+                        className="text-teal-700 dark:text-teal-400 font-medium hover:underline text-[11px] pt-1"
                       >
                         Inspect Record 1 Excerpt
                       </button>
@@ -257,7 +253,7 @@ export const PatientReviewPage: React.FC = () => {
                   )}
 
                   {disc.fact_2 && (
-                    <div className="p-3.5 rounded-xl bg-slate-50 dark:bg-slate-800/40 border border-slate-100 dark:border-slate-800 space-y-1">
+                    <div className="p-3.5 rounded-xl bg-slate-50/70 dark:bg-slate-800/40 border border-slate-200/60 dark:border-slate-800 space-y-1">
                       <span className="text-[10px] uppercase font-bold text-slate-400">Record 2</span>
                       <p className="font-bold text-slate-900 dark:text-white">{disc.fact_2.normalized_value}</p>
                       <p className="text-slate-500 dark:text-slate-400">
@@ -265,7 +261,7 @@ export const PatientReviewPage: React.FC = () => {
                       </p>
                       <button
                         onClick={() => handleInspect(disc.fact_2!.id)}
-                        className="text-teal-600 dark:text-teal-400 font-medium hover:underline text-[11px] pt-1"
+                        className="text-teal-700 dark:text-teal-400 font-medium hover:underline text-[11px] pt-1"
                       >
                         Inspect Record 2 Excerpt
                       </button>
@@ -275,7 +271,7 @@ export const PatientReviewPage: React.FC = () => {
 
                 {/* Existing Review Note */}
                 {disc.review_note && (
-                  <div className="p-3 bg-blue-50/50 dark:bg-blue-950/20 rounded-xl border border-blue-200/50 dark:border-blue-900/40 text-xs text-blue-900 dark:text-blue-200">
+                  <div className="p-3 bg-teal-50/60 dark:bg-teal-950/20 rounded-xl border border-teal-200/50 dark:border-teal-900/40 text-xs text-teal-900 dark:text-teal-200">
                     <span className="font-bold">Clinician Review Note (by {disc.reviewer_name || 'Clinician'}):</span>
                     <p className="mt-0.5">{disc.review_note}</p>
                   </div>
@@ -294,7 +290,7 @@ export const PatientReviewPage: React.FC = () => {
                       onChange={(e) =>
                         setReviewNote({ ...reviewNote, [disc.id]: e.target.value })
                       }
-                      className="w-full px-3 py-1.5 text-xs bg-slate-50 dark:bg-slate-800 border border-slate-200 dark:border-slate-700 rounded-lg text-slate-900 dark:text-white focus:outline-none focus:ring-2 focus:ring-blue-500"
+                      className="med-input w-full"
                     />
                   </div>
 
@@ -302,21 +298,21 @@ export const PatientReviewPage: React.FC = () => {
                     <button
                       onClick={() => handleReviewDiscrepancy(disc.id, 'confirmed')}
                       disabled={reviewingId === disc.id}
-                      className="px-3 py-1.5 text-xs font-semibold text-emerald-700 bg-emerald-50 hover:bg-emerald-100 dark:bg-emerald-950/60 dark:text-emerald-300 dark:hover:bg-emerald-900/60 border border-emerald-200 dark:border-emerald-800 rounded-lg transition-colors"
+                      className="med-btn-primary"
                     >
                       Mark Confirmed Transition
                     </button>
                     <button
                       onClick={() => handleReviewDiscrepancy(disc.id, 'unresolved')}
                       disabled={reviewingId === disc.id}
-                      className="px-3 py-1.5 text-xs font-semibold text-rose-700 bg-rose-50 hover:bg-rose-100 dark:bg-rose-950/60 dark:text-rose-300 dark:hover:bg-rose-900/60 border border-rose-200 dark:border-rose-800 rounded-lg transition-colors"
+                      className="med-btn-danger"
                     >
                       Mark Unresolved Conflict
                     </button>
                     <button
                       onClick={() => handleReviewDiscrepancy(disc.id, 'requires_additional_information')}
                       disabled={reviewingId === disc.id}
-                      className="px-3 py-1.5 text-xs font-semibold text-amber-700 bg-amber-50 hover:bg-amber-100 dark:bg-amber-950/60 dark:text-amber-300 dark:hover:bg-amber-900/60 border border-amber-200 dark:border-amber-800 rounded-lg transition-colors"
+                      className="med-btn-secondary"
                     >
                       Requires Additional Info
                     </button>
@@ -326,7 +322,7 @@ export const PatientReviewPage: React.FC = () => {
             ))}
 
             {discrepancies.length === 0 && !loading && (
-              <div className="p-8 text-center text-xs text-slate-400 bg-white dark:bg-slate-900 rounded-2xl border border-slate-200 dark:border-slate-800">
+              <div className="med-card p-8 text-center text-xs text-slate-400">
                 No medication discrepancies detected within the authorized documents.
               </div>
             )}
@@ -336,7 +332,7 @@ export const PatientReviewPage: React.FC = () => {
 
       {/* Tab 2: Authorized Timeline */}
       {activeTab === 'timeline' && (
-        <div className="p-6 rounded-2xl bg-white dark:bg-slate-900 border border-slate-200/80 dark:border-slate-800 shadow-xs space-y-4">
+        <div className="med-card p-6 space-y-4">
           <h3 className="font-bold text-base text-slate-900 dark:text-white">
             Authorized Chronological Facts
           </h3>
@@ -345,7 +341,7 @@ export const PatientReviewPage: React.FC = () => {
               <div key={fact.id} className="py-3 flex items-center justify-between gap-3 text-xs">
                 <div>
                   <div className="flex items-center space-x-2">
-                    <span className="font-bold uppercase text-[10px] text-teal-600 dark:text-teal-400">
+                    <span className="font-bold uppercase text-[10px] text-teal-700 dark:text-teal-400">
                       {fact.fact_type.replace('_', ' ')}
                     </span>
                     <span className="text-slate-300 dark:text-slate-700">•</span>
@@ -359,14 +355,14 @@ export const PatientReviewPage: React.FC = () => {
                   {fact.verification_status !== 'clinician_verified' && (
                     <button
                       onClick={() => handleVerifyFact(fact.id)}
-                      className="px-2.5 py-1 text-xs font-semibold text-emerald-700 bg-emerald-50 hover:bg-emerald-100 dark:bg-emerald-950 dark:text-emerald-300 rounded-lg border border-emerald-200 dark:border-emerald-800 transition-colors"
+                      className="med-btn-primary text-xs py-1 px-2.5"
                     >
                       Verify Fact
                     </button>
                   )}
                   <button
                     onClick={() => handleInspect(fact.id)}
-                    className="p-1.5 text-slate-400 hover:text-teal-600 dark:hover:text-teal-400 transition-colors"
+                    className="p-1.5 text-slate-400 hover:text-teal-700 dark:hover:text-teal-400 transition-colors"
                     title="View ground-truth excerpt"
                   >
                     <Eye className="w-4 h-4" />
@@ -384,7 +380,7 @@ export const PatientReviewPage: React.FC = () => {
           {labTrends.map((series, idx) => (
             <div
               key={idx}
-              className="p-6 rounded-2xl bg-white dark:bg-slate-900 border border-slate-200/80 dark:border-slate-800 shadow-xs space-y-4"
+              className="med-card p-6 space-y-4"
             >
               <div className="flex items-center justify-between pb-2 border-b border-slate-100 dark:border-slate-800">
                 <h4 className="font-bold text-sm text-slate-900 dark:text-white">
@@ -401,8 +397,16 @@ export const PatientReviewPage: React.FC = () => {
                     <CartesianGrid strokeDasharray="3 3" opacity={0.2} />
                     <XAxis dataKey="date" fontSize={11} />
                     <YAxis fontSize={11} />
-                    <Tooltip />
-                    <Line type="monotone" dataKey="value" stroke="#2563eb" strokeWidth={2.5} />
+                    <Tooltip
+                      contentStyle={{
+                        backgroundColor: '#122131',
+                        borderColor: '#1C3349',
+                        borderRadius: '0.75rem',
+                        color: '#F0F6FA',
+                        fontSize: '12px',
+                      }}
+                    />
+                    <Line type="monotone" dataKey="value" stroke="#0F766E" strokeWidth={2.5} />
                   </RechartsLineChart>
                 </ResponsiveContainer>
               </div>
@@ -410,7 +414,7 @@ export const PatientReviewPage: React.FC = () => {
           ))}
 
           {labTrends.length === 0 && (
-            <div className="p-8 text-center text-xs text-slate-400 bg-white dark:bg-slate-900 rounded-2xl border border-slate-200 dark:border-slate-800">
+            <div className="med-card p-8 text-center text-xs text-slate-400">
               No laboratory diagnostic data in authorized records.
             </div>
           )}
@@ -419,7 +423,7 @@ export const PatientReviewPage: React.FC = () => {
 
       {/* Tab 4: Clinical Handover & AI Summary */}
       {activeTab === 'handover' && (
-        <div className="p-6 rounded-2xl bg-white dark:bg-slate-900 border border-slate-200/80 dark:border-slate-800 shadow-xs space-y-4">
+        <div className="med-card p-6 space-y-4">
           <div className="flex items-center justify-between pb-3 border-b border-slate-100 dark:border-slate-800">
             <div>
               <h3 className="font-bold text-base text-slate-900 dark:text-white">
@@ -433,7 +437,7 @@ export const PatientReviewPage: React.FC = () => {
               href={api.getHandoverPdfUrl(pId)}
               target="_blank"
               rel="noreferrer"
-              className="px-3.5 py-1.5 text-xs font-semibold bg-teal-600 hover:bg-teal-700 text-white rounded-xl shadow-xs transition-colors flex items-center space-x-1.5"
+              className="med-btn-primary"
             >
               <FileDown className="w-4 h-4" />
               <span>Download Official PDF</span>
@@ -442,8 +446,8 @@ export const PatientReviewPage: React.FC = () => {
 
           {handover ? (
             <div className="space-y-4 text-xs">
-              <div className="p-4 bg-slate-50 dark:bg-slate-800/50 rounded-xl">
-                <span className="font-bold uppercase tracking-wider text-teal-600 dark:text-teal-400 text-[10px]">
+              <div className="p-4 bg-slate-50/80 dark:bg-slate-800/50 rounded-xl">
+                <span className="font-bold uppercase tracking-wider text-teal-700 dark:text-teal-400 text-[10px]">
                   Executive Summary
                 </span>
                 <p className="mt-1 text-slate-800 dark:text-slate-200 leading-relaxed font-medium">
@@ -460,7 +464,7 @@ export const PatientReviewPage: React.FC = () => {
                       {m.supporting_fact_ids?.[0] && (
                         <button
                           onClick={() => handleInspect(m.supporting_fact_ids[0])}
-                          className="text-teal-600 dark:text-teal-400 text-[10px] font-mono hover:underline"
+                          className="med-badge med-badge-teal font-mono cursor-pointer"
                         >
                           Fact #{m.supporting_fact_ids[0]}
                         </button>
@@ -475,7 +479,7 @@ export const PatientReviewPage: React.FC = () => {
               <p className="text-xs text-slate-400">Click below to synthesize the handover report.</p>
               <button
                 onClick={handleGenerateHandover}
-                className="px-4 py-2 text-xs font-semibold bg-blue-600 hover:bg-blue-700 text-white rounded-xl"
+                className="med-btn-primary"
               >
                 Synthesize Clinical Handover
               </button>
@@ -486,7 +490,7 @@ export const PatientReviewPage: React.FC = () => {
 
       {/* Tab 5: Shared Records */}
       {activeTab === 'docs' && (
-        <div className="p-6 rounded-2xl bg-white dark:bg-slate-900 border border-slate-200/80 dark:border-slate-800 shadow-xs space-y-4">
+        <div className="med-card p-6 space-y-4">
           <h3 className="font-bold text-base text-slate-900 dark:text-white">
             Authorized Original Documents
           </h3>
@@ -494,7 +498,7 @@ export const PatientReviewPage: React.FC = () => {
             {documents.map((doc) => (
               <div key={doc.id} className="py-3 flex items-center justify-between text-xs">
                 <div className="flex items-center space-x-3">
-                  <FileText className="w-4 h-4 text-blue-600 shrink-0" />
+                  <FileText className="w-4 h-4 text-teal-700 shrink-0" />
                   <div>
                     <p className="font-semibold text-slate-900 dark:text-white">{doc.uploaded_filename}</p>
                     <p className="text-[11px] text-slate-400">
@@ -507,7 +511,7 @@ export const PatientReviewPage: React.FC = () => {
                   href={api.getDocumentFileUrl(doc.id)}
                   target="_blank"
                   rel="noreferrer"
-                  className="px-3 py-1.5 font-semibold text-teal-600 hover:bg-teal-50 dark:hover:bg-teal-950/50 rounded-lg transition-colors flex items-center space-x-1"
+                  className="med-btn-ghost text-teal-700 dark:text-teal-400 font-medium"
                 >
                   <FileDown className="w-4 h-4" />
                   <span>Download</span>

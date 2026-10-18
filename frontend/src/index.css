@@ -31,3 +31,137 @@
     margin: 0;
   }
 }
+
+.med-badge-teal {
+  background-color: #ECFDF5;
+  color: #0F766E;
+  border: 1px solid #A7F3D0;
+}
+
+.dark .med-badge-teal {
+  background-color: #102936;
+  color: #2DD4BF;
+  border-color: #134E48;
+}
+
+.med-badge-blue {
+  background-color: #EFF6FF;
+  color: #1D4ED8;
+  border: 1px solid #BFDBFE;
+}
+
+.dark .med-badge-blue {
+  background-color: #1E293B;
+  color: #60A5FA;
+  border-color: #1E3A8A;
+}
+
+.med-badge-success {
+  background-color: #F0FDF4;
+  color: #15803D;
+  border: 1px solid #BBF7D0;
+}
+
+.dark .med-badge-success {
+  background-color: #142E1F;
+  color: #4ADE80;
+  border-color: #166534;
+}
+
+.med-badge-warning {
+  background-color: #FFFBEB;
+  color: #B45309;
+  border: 1px solid #FDE68A;
+}
+
+.dark .med-badge-warning {
+  background-color: #32230D;
+  color: #FBBF24;
+  border-color: #78350F;
+}
+
+.med-badge-error {
+  background-color: #FEF2F2;
+  color: #B91C1C;
+  border: 1px solid #FECACA;
+}
+
+.dark .med-badge-error {
+  background-color: #331515;
+  color: #F87171;
+  border-color: #7F1D1D;
+}
+
+.med-btn-danger {
+  background-color: #DC2626;
+  color: #FFFFFF;
+  font-weight: 600;
+  border-radius: 0.625rem;
+  padding: 0.5rem 0.875rem;
+  font-size: 0.8125rem;
+  transition: all 0.15s ease;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: 0.375rem;
+}
+
+.med-btn-danger:hover {
+  background-color: #B91C1C;
+}
+
+.med-btn-ghost {
+  background-color: transparent;
+  color: var(--text-secondary);
+  border-radius: 0.5rem;
+  padding: 0.375rem 0.625rem;
+  font-size: 0.75rem;
+  font-weight: 500;
+  transition: all 0.15s ease;
+  display: inline-flex;
+  align-items: center;
+  gap: 0.25rem;
+}
+
+.med-btn-ghost:hover {
+  background-color: rgba(15, 118, 110, 0.08);
+  color: var(--color-medical-teal);
+}
+
+.dark .med-btn-ghost:hover {
+  background-color: rgba(20, 184, 166, 0.12);
+}
+
+.med-input {
+  background-color: var(--bg-card);
+  color: var(--text-primary);
+  border: 1px solid var(--border-main);
+  border-radius: 0.625rem;
+  padding: 0.5rem 0.75rem;
+  font-size: 0.8125rem;
+  transition: border-color 0.15s ease, box-shadow 0.15s ease;
+}
+
+.med-input:focus {
+  outline: none;
+  border-color: #0F766E;
+  box-shadow: 0 0 0 2px rgba(15, 118, 110, 0.15);
+}
+
+.dark .med-input:focus {
+  border-color: #14B8A6;
+  box-shadow: 0 0 0 2px rgba(20, 184, 166, 0.2);
+}
+
+.med-header-banner {
+  background-color: #0F766E;
+  color: #FFFFFF;
+  border-radius: 1rem;
+  padding: 1.5rem;
+  box-shadow: 0 4px 6px -1px rgba(15, 118, 110, 0.12), 0 2px 4px -2px rgba(15, 118, 110, 0.06);
+}
+
+.dark .med-header-banner {
+  background-color: #102936;
+  border: 1px solid #1C3349;
+}

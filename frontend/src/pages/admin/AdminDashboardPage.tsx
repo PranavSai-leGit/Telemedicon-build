@@ -102,11 +102,11 @@ export const AdminDashboardPage: React.FC = () => {
       </div>
 
       {/* Strict Privacy Shield Banner */}
-      <div className="p-4 rounded-xl bg-purple-50/50 dark:bg-purple-950/30 border border-purple-200/60 dark:border-purple-900/40 text-xs text-purple-900 dark:text-purple-300 flex items-start space-x-3">
-        <ShieldCheck className="w-5 h-5 text-purple-600 dark:text-purple-400 shrink-0 mt-0.5" />
+      <div className="p-4 rounded-xl bg-teal-50/60 dark:bg-teal-950/30 border border-teal-200/60 dark:border-teal-900/40 text-xs text-teal-900 dark:text-teal-300 flex items-start space-x-3">
+        <ShieldCheck className="w-5 h-5 text-teal-700 dark:text-teal-400 shrink-0 mt-0.5" />
         <div>
           <span className="font-bold">Healthcare Privacy & Segregation Policy:</span>
-          <p className="text-[11px] mt-0.5 text-purple-800 dark:text-purple-300">
+          <p className="text-[11px] mt-0.5 text-teal-800 dark:text-teal-300">
             Administrators manage system identities and access permissions only. Under MediTale's zero-knowledge clinical isolation policy, medical documents and clinical notes are never exposed in administrative views.
           </p>
         </div>
@@ -128,7 +128,7 @@ export const AdminDashboardPage: React.FC = () => {
       {/* System Metrics Grid */}
       {stats && (
         <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-4">
-          <div className="p-5 rounded-2xl bg-white dark:bg-slate-900 border border-slate-200/80 dark:border-slate-800 shadow-xs">
+          <div className="med-card p-5">
             <span className="text-xs font-semibold text-slate-500 dark:text-slate-400">Total Registered Users</span>
             <div className="mt-3 flex items-baseline space-x-2">
               <span className="text-3xl font-bold tracking-tight text-slate-900 dark:text-white">
@@ -145,35 +145,35 @@ export const AdminDashboardPage: React.FC = () => {
             </div>
           </div>
 
-          <div className="p-5 rounded-2xl bg-white dark:bg-slate-900 border border-slate-200/80 dark:border-slate-800 shadow-xs">
+          <div className="med-card p-5">
             <span className="text-xs font-semibold text-slate-500 dark:text-slate-400">Documents Ingested</span>
             <div className="mt-3 flex items-baseline space-x-2">
               <span className="text-3xl font-bold tracking-tight text-slate-900 dark:text-white">
                 {stats.documents.total_processed}
               </span>
-              <span className="text-xs text-emerald-600 font-medium">{stats.documents.completed} completed</span>
+              <span className="text-xs text-emerald-700 dark:text-emerald-400 font-medium">{stats.documents.completed} completed</span>
             </div>
             <div className="mt-2 text-[11px] text-slate-400">
               Duplicates Flagged: {stats.documents.duplicates_detected} (SHA-256)
             </div>
           </div>
 
-          <div className="p-5 rounded-2xl bg-white dark:bg-slate-900 border border-slate-200/80 dark:border-slate-800 shadow-xs">
+          <div className="med-card p-5">
             <span className="text-xs font-semibold text-slate-500 dark:text-slate-400">Database Engine</span>
             <div className="mt-3 flex items-baseline space-x-2">
               <span className="text-xl font-bold text-slate-900 dark:text-white">PostgreSQL 18</span>
-              <span className="text-xs text-emerald-600 font-medium">JSONB Active</span>
+              <span className="text-xs text-emerald-700 dark:text-emerald-400 font-medium">JSONB Active</span>
             </div>
             <div className="mt-2 text-[11px] text-slate-400">
               Driver: Psycopg 3 Pool
             </div>
           </div>
 
-          <div className="p-5 rounded-2xl bg-white dark:bg-slate-900 border border-slate-200/80 dark:border-slate-800 shadow-xs">
+          <div className="med-card p-5">
             <span className="text-xs font-semibold text-slate-500 dark:text-slate-400">AI Service Health</span>
             <div className="mt-3 flex items-baseline space-x-2">
               <span className="text-xl font-bold text-slate-900 dark:text-white">Gemini + Demo</span>
-              <span className="text-xs text-emerald-600 font-medium">Ready</span>
+              <span className="text-xs text-emerald-700 dark:text-emerald-400 font-medium">Ready</span>
             </div>
             <div className="mt-2 text-[11px] text-slate-400">
               Structured Pydantic Validation
@@ -183,7 +183,7 @@ export const AdminDashboardPage: React.FC = () => {
       )}
 
       {/* User Account Management Table */}
-      <div className="p-6 rounded-2xl bg-white dark:bg-slate-900 border border-slate-200/80 dark:border-slate-800 shadow-xs space-y-4">
+      <div className="med-card p-6 space-y-4">
         <div>
           <h3 className="font-bold text-base text-slate-900 dark:text-white">Account Management</h3>
           <p className="text-xs text-slate-500 dark:text-slate-400">
@@ -216,7 +216,7 @@ export const AdminDashboardPage: React.FC = () => {
                     <select
                       value={u.role}
                       onChange={(e) => handleChangeRole(u, e.target.value)}
-                      className="text-xs font-semibold px-2.5 py-1 rounded-lg bg-slate-50 dark:bg-slate-800 border border-slate-200 dark:border-slate-700 text-slate-800 dark:text-slate-200 focus:outline-none"
+                      className="med-input text-xs font-semibold py-1 px-2.5 capitalize"
                     >
                       <option value="patient">Patient</option>
                       <option value="clinician">Clinician</option>
@@ -225,10 +225,10 @@ export const AdminDashboardPage: React.FC = () => {
                   </td>
                   <td className="py-3">
                     <span
-                      className={`px-2 py-0.5 rounded-full text-[10px] font-bold uppercase tracking-wider border ${
+                      className={`med-badge uppercase tracking-wider ${
                         u.is_active
-                          ? 'bg-emerald-50 dark:bg-emerald-950 text-emerald-700 dark:text-emerald-300 border-emerald-200'
-                          : 'bg-rose-50 dark:bg-rose-950 text-rose-700 dark:text-rose-300 border-rose-200'
+                          ? 'med-badge-success'
+                          : 'med-badge-error'
                       }`}
                     >
                       {u.is_active ? 'Active' : 'Inactive'}
@@ -240,11 +240,7 @@ export const AdminDashboardPage: React.FC = () => {
                   <td className="py-3 text-right">
                     <button
                       onClick={() => handleToggleUserStatus(u)}
-                      className={`px-3 py-1 rounded-lg font-semibold text-xs transition-colors ${
-                        u.is_active
-                          ? 'text-rose-600 hover:bg-rose-50 dark:hover:bg-rose-950/50 border border-rose-200 dark:border-rose-900'
-                          : 'text-emerald-600 hover:bg-emerald-50 dark:hover:bg-emerald-950/50 border border-emerald-200 dark:border-emerald-900'
-                      }`}
+                      className={u.is_active ? 'med-btn-danger' : 'med-btn-primary'}
                     >
                       {u.is_active ? 'Deactivate' : 'Activate'}
                     </button>
@@ -257,7 +253,7 @@ export const AdminDashboardPage: React.FC = () => {
       </div>
 
       {/* Security Audit Log Feed */}
-      <div className="p-6 rounded-2xl bg-white dark:bg-slate-900 border border-slate-200/80 dark:border-slate-800 shadow-xs space-y-4">
+      <div className="med-card p-6 space-y-4">
         <div>
           <h3 className="font-bold text-base text-slate-900 dark:text-white">Security & Access Audit Trail</h3>
           <p className="text-xs text-slate-500 dark:text-slate-400">
@@ -271,8 +267,8 @@ export const AdminDashboardPage: React.FC = () => {
               <div className="flex items-center space-x-3">
                 <div className={`p-1.5 rounded-lg shrink-0 ${
                   log.outcome === 'success'
-                    ? 'bg-emerald-50 dark:bg-emerald-950 text-emerald-600 dark:text-emerald-400'
-                    : 'bg-rose-50 dark:bg-rose-950 text-rose-600 dark:text-rose-400'
+                    ? 'bg-teal-50 dark:bg-teal-950 text-teal-700 dark:text-teal-400'
+                    : 'bg-rose-50 dark:bg-rose-950 text-rose-700 dark:text-rose-400'
                 }`}>
                   <Activity className="w-3.5 h-3.5" />
                 </div>
@@ -291,10 +287,10 @@ export const AdminDashboardPage: React.FC = () => {
               </div>
 
               <div className="text-right shrink-0">
-                <span className={`text-[10px] font-bold px-2 py-0.5 rounded-full uppercase ${
+                <span className={`med-badge uppercase ${
                   log.outcome === 'success'
-                    ? 'bg-emerald-50 dark:bg-emerald-950 text-emerald-700 dark:text-emerald-300'
-                    : 'bg-rose-50 dark:bg-rose-950 text-rose-700 dark:text-rose-300'
+                    ? 'med-badge-success'
+                    : 'med-badge-error'
                 }`}>
                   {log.outcome}
                 </span>

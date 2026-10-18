@@ -132,11 +132,10 @@ export const TimelinePage: React.FC = () => {
             <button
               key={cat.id}
               onClick={() => setFilterType(cat.id)}
-              className={`px-3 py-1.5 rounded-xl text-xs font-semibold transition-all ${
-                filterType === cat.id
+              className={`px-3 py-1.5 rounded-xl text-xs font-semibold transition-all ${filterType === cat.id
                   ? 'bg-teal-600 text-white shadow-xs'
                   : 'bg-slate-50 dark:bg-slate-800 text-slate-600 dark:text-slate-400 hover:bg-slate-100 dark:hover:bg-slate-700'
-              }`}
+                }`}
             >
               {cat.label}
             </button>

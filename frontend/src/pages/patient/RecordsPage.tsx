@@ -25,7 +25,7 @@ export const RecordsPage: React.FC = () => {
   const [selectedType, setSelectedType] = useState('prescription');
   const [dragActive, setDragActive] = useState(false);
   const [message, setMessage] = useState<{ type: 'success' | 'error' | 'warning'; text: string } | null>(null);
-  
+
   // Manual Entry Modal
   const [manualDoc, setManualDoc] = useState<MedicalDocument | null>(null);
   const [manualMedName, setManualMedName] = useState('');
@@ -142,13 +142,12 @@ export const RecordsPage: React.FC = () => {
       {/* Status Alert Notification */}
       {message && (
         <div
-          className={`p-4 rounded-xl border flex items-start space-x-3 text-xs font-medium ${
-            message.type === 'success'
+          className={`p-4 rounded-xl border flex items-start space-x-3 text-xs font-medium ${message.type === 'success'
               ? 'bg-emerald-50 dark:bg-emerald-950/40 border-emerald-200 dark:border-emerald-800 text-emerald-800 dark:text-emerald-200'
               : message.type === 'warning'
-              ? 'bg-amber-50 dark:bg-amber-950/40 border-amber-200 dark:border-amber-800 text-amber-800 dark:text-amber-200'
-              : 'bg-rose-50 dark:bg-rose-950/40 border-rose-200 dark:border-rose-800 text-rose-800 dark:text-rose-200'
-          }`}
+                ? 'bg-amber-50 dark:bg-amber-950/40 border-amber-200 dark:border-amber-800 text-amber-800 dark:text-amber-200'
+                : 'bg-rose-50 dark:bg-rose-950/40 border-rose-200 dark:border-rose-800 text-rose-800 dark:text-rose-200'
+            }`}
         >
           {message.type === 'success' ? (
             <CheckCircle2 className="w-4 h-4 shrink-0 mt-0.5 text-emerald-600 dark:text-emerald-400" />
@@ -195,11 +194,10 @@ export const RecordsPage: React.FC = () => {
             handleFileSelect(e.dataTransfer.files);
           }}
           onClick={() => fileInputRef.current?.click()}
-          className={`border-2 border-dashed rounded-xl p-8 text-center cursor-pointer transition-all ${
-            dragActive
+          className={`border-2 border-dashed rounded-xl p-8 text-center cursor-pointer transition-all ${dragActive
               ? 'border-teal-500 bg-teal-50/50 dark:bg-teal-950/20'
               : 'border-slate-300 dark:border-slate-700 hover:border-teal-400 bg-slate-50/50 dark:bg-slate-800/30'
-          }`}
+            }`}
         >
           <input
             ref={fileInputRef}
@@ -280,13 +278,12 @@ export const RecordsPage: React.FC = () => {
                     {doc.document_date || 'Unrecorded'}
                   </td>
                   <td className="py-3">
-                    <span className={`px-2 py-0.5 rounded-full text-[10px] font-semibold capitalize border ${
-                      doc.processing_status === 'completed'
+                    <span className={`px-2 py-0.5 rounded-full text-[10px] font-semibold capitalize border ${doc.processing_status === 'completed'
                         ? 'bg-emerald-50 dark:bg-emerald-950/60 text-emerald-700 dark:text-emerald-300 border-emerald-200 dark:border-emerald-800'
                         : doc.processing_status === 'duplicate'
-                        ? 'bg-amber-50 dark:bg-amber-950/60 text-amber-700 dark:text-amber-300 border-amber-200 dark:border-amber-800'
-                        : 'bg-slate-100 dark:bg-slate-800 text-slate-600 dark:text-slate-300 border-slate-200'
-                    }`}>
+                          ? 'bg-amber-50 dark:bg-amber-950/60 text-amber-700 dark:text-amber-300 border-amber-200 dark:border-amber-800'
+                          : 'bg-slate-100 dark:bg-slate-800 text-slate-600 dark:text-slate-300 border-slate-200'
+                      }`}>
                       {doc.processing_status}
                     </span>
                   </td>

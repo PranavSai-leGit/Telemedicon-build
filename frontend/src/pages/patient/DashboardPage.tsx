@@ -205,13 +205,12 @@ export const DashboardPage: React.FC = () => {
                 </div>
 
                 <div className="flex items-center space-x-2 shrink-0">
-                  <span className={`text-[10px] font-semibold px-2 py-0.5 rounded-full capitalize ${
-                    doc.processing_status === 'completed'
+                  <span className={`text-[10px] font-semibold px-2 py-0.5 rounded-full capitalize ${doc.processing_status === 'completed'
                       ? 'bg-emerald-50 dark:bg-emerald-950/60 text-emerald-700 dark:text-emerald-300 border border-emerald-200 dark:border-emerald-800'
                       : doc.processing_status === 'duplicate'
-                      ? 'bg-amber-50 dark:bg-amber-950/60 text-amber-700 dark:text-amber-300 border border-amber-200 dark:border-amber-800'
-                      : 'bg-slate-100 dark:bg-slate-800 text-slate-600 dark:text-slate-400'
-                  }`}>
+                        ? 'bg-amber-50 dark:bg-amber-950/60 text-amber-700 dark:text-amber-300 border border-amber-200 dark:border-amber-800'
+                        : 'bg-slate-100 dark:bg-slate-800 text-slate-600 dark:text-slate-400'
+                    }`}>
                     {doc.processing_status}
                   </span>
                   <a
@@ -255,15 +254,14 @@ export const DashboardPage: React.FC = () => {
             {facts.slice(0, 4).map((fact) => (
               <div key={fact.id} className="py-3 flex items-center justify-between">
                 <div className="flex items-center space-x-3 min-w-0 pr-3">
-                  <div className={`p-2 rounded-lg shrink-0 ${
-                    fact.fact_type === 'condition'
+                  <div className={`p-2 rounded-lg shrink-0 ${fact.fact_type === 'condition'
                       ? 'bg-purple-50 dark:bg-purple-950/60 text-purple-600 dark:text-purple-400'
                       : fact.fact_type === 'medication'
-                      ? 'bg-teal-50 dark:bg-teal-950/60 text-teal-600 dark:text-teal-400'
-                      : fact.fact_type === 'lab_result'
-                      ? 'bg-blue-50 dark:bg-blue-950/60 text-blue-600 dark:text-blue-400'
-                      : 'bg-slate-50 dark:bg-slate-800 text-slate-600'
-                  }`}>
+                        ? 'bg-teal-50 dark:bg-teal-950/60 text-teal-600 dark:text-teal-400'
+                        : fact.fact_type === 'lab_result'
+                          ? 'bg-blue-50 dark:bg-blue-950/60 text-blue-600 dark:text-blue-400'
+                          : 'bg-slate-50 dark:bg-slate-800 text-slate-600'
+                    }`}>
                     <Calendar className="w-4 h-4" />
                   </div>
                   <div className="min-w-0">

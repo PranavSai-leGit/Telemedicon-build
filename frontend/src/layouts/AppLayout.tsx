@@ -34,8 +34,8 @@ export const AppLayout: React.FC<AppLayoutProps> = ({ allowedRoles }) => {
       user.role === 'clinician'
         ? '/clinician/dashboard'
         : user.role === 'administrator'
-        ? '/admin/dashboard'
-        : '/patient/dashboard';
+          ? '/admin/dashboard'
+          : '/patient/dashboard';
     return <Navigate to={target} replace />;
   }
 
