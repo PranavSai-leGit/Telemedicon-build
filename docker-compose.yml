@@ -1,0 +1,16 @@
+services:
+  db:
+    image: postgres:16-alpine
+    container_name: meditale_postgres
+    restart: always
+    environment:
+      POSTGRES_USER: meditale_user
+      POSTGRES_PASSWORD: meditale_password
+      POSTGRES_DB: meditale
+    ports:
+      - "5432:5432"
+    volumes:
+      - postgres_data:/var/lib/postgresql/data
+
+volumes:
+  postgres_data:
