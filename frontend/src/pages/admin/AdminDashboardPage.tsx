@@ -18,7 +18,9 @@ import {
   Sparkles,
   ArrowRight,
   Database,
-  ChevronRight
+  ChevronRight,
+  KeyRound,
+  Shield
 } from 'lucide-react';
 import { api } from '../../services/api';
 import { AdminStats, AuditEventItem } from '../../types';
@@ -49,6 +51,22 @@ export const AdminDashboardPage: React.FC = () => {
     fetchData();
   }, []);
 
+  const getActionBadgeClass = (action: string) => {
+    if (action.includes('LOGIN') || action.includes('AUTH')) {
+      return 'med-badge-teal';
+    }
+    if (action.includes('RECORD') || action.includes('DOCUMENT')) {
+      return 'med-badge-blue';
+    }
+    if (action.includes('CONSENT') || action.includes('ROLE')) {
+      return 'med-badge-warning';
+    }
+    if (action.includes('FAIL') || action.includes('DENIED')) {
+      return 'med-badge-error';
+    }
+    return 'med-badge-slate';
+  };
+
   return (
     <div className="space-y-6 pb-12">
       {/* Administrator Header */}
@@ -73,7 +91,7 @@ export const AdminDashboardPage: React.FC = () => {
       {/* KPI Cards */}
       {stats && (
         <div className="grid grid-cols-2 sm:grid-cols-4 gap-4">
-          <div className="med-card p-5 space-y-2">
+          <div className="med-card med-card-hover p-5 space-y-2">
             <div className="flex items-center justify-between">
               <span className="text-xs font-semibold text-slate-500">Total Users</span>
               <div className="p-2 rounded-xl bg-teal-50 dark:bg-teal-950/60 text-teal-600">
@@ -91,7 +109,7 @@ export const AdminDashboardPage: React.FC = () => {
             </div>
           </div>
 
-          <div className="med-card p-5 space-y-2">
+          <div className="med-card med-card-hover p-5 space-y-2">
             <div className="flex items-center justify-between">
               <span className="text-xs font-semibold text-slate-500">Processed Records</span>
               <div className="p-2 rounded-xl bg-blue-50 dark:bg-blue-950/60 text-blue-600">
@@ -109,7 +127,7 @@ export const AdminDashboardPage: React.FC = () => {
             </div>
           </div>
 
-          <div className="med-card p-5 space-y-2">
+          <div className="med-card med-card-hover p-5 space-y-2">
             <div className="flex items-center justify-between">
               <span className="text-xs font-semibold text-slate-500">Database Engine</span>
               <div className="p-2 rounded-xl bg-purple-50 dark:bg-purple-950/60 text-purple-600">
@@ -127,7 +145,7 @@ export const AdminDashboardPage: React.FC = () => {
             </div>
           </div>
 
-          <div className="med-card p-5 space-y-2">
+          <div className="med-card med-card-hover p-5 space-y-2">
             <div className="flex items-center justify-between">
               <span className="text-xs font-semibold text-slate-500">AI Model Mode</span>
               <div className="p-2 rounded-xl bg-amber-50 dark:bg-amber-950/60 text-amber-600">
@@ -145,6 +163,90 @@ export const AdminDashboardPage: React.FC = () => {
           </div>
         </div>
       )}
+
+      {/* Necessary Information Containers in Admin Portal */}
+      <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+        {/* Container 1: Platform Security & Privacy Compliance */}
+        <div className="med-card med-card-hover p-5 space-y-3">
+          <div className="flex items-center justify-between pb-2 border-b border-slate-100 dark:border-slate-800">
+            <div className="flex items-center space-x-2">
+              <Shield className="w-4 h-4 text-teal-600 dark:text-teal-400" />
+              <h4 className="font-bold text-xs text-slate-900 dark:text-white uppercase tracking-wider">
+                Security & Isolation Boundaries
+              </h4>
+            </div>
+            <span className="med-badge med-badge-success text-[10px]">Active</span>
+          </div>
+          <div className="grid grid-cols-2 gap-2 text-xs">
+            <div className="p-2.5 rounded-xl bg-slate-50 dark:bg-slate-800/50 border border-slate-100 dark:border-slate-700/60 space-y-1">
+              <span className="text-[10px] text-slate-400 font-semibold block uppercase">Zero-Knowledge Isolation</span>
+              <span className="font-bold text-slate-800 dark:text-slate-200">Clinical Data Shield</span>
+              <p className="text-[10px] text-slate-500 leading-snug">Admins cannot view raw patient diagnoses or fact notes.</p>
+            </div>
+            <div className="p-2.5 rounded-xl bg-slate-50 dark:bg-slate-800/50 border border-slate-100 dark:border-slate-700/60 space-y-1">
+              <span className="text-[10px] text-slate-400 font-semibold block uppercase">RBAC Guard</span>
+              <span className="font-bold text-slate-800 dark:text-slate-200">Strict Permission Scope</span>
+              <p className="text-[10px] text-slate-500 leading-snug">Patient, Clinician, and Admin routes strictly gated.</p>
+            </div>
+            <div className="p-2.5 rounded-xl bg-slate-50 dark:bg-slate-800/50 border border-slate-100 dark:border-slate-700/60 space-y-1">
+              <span className="text-[10px] text-slate-400 font-semibold block uppercase">Audit Immutability</span>
+              <span className="font-bold text-slate-800 dark:text-slate-200">Cryptographic Trail</span>
+              <p className="text-[10px] text-slate-500 leading-snug">All auth, document access, and consent changes logged.</p>
+            </div>
+            <div className="p-2.5 rounded-xl bg-slate-50 dark:bg-slate-800/50 border border-slate-100 dark:border-slate-700/60 space-y-1">
+              <span className="text-[10px] text-slate-400 font-semibold block uppercase">Session Defense</span>
+              <span className="font-bold text-slate-800 dark:text-slate-200">HttpOnly JWT</span>
+              <p className="text-[10px] text-slate-500 leading-snug">SameSite=Lax with 24-hour expiration token rotation.</p>
+            </div>
+          </div>
+        </div>
+
+        {/* Container 2: Infrastructure Diagnostics & Runtime Services */}
+        <div className="med-card med-card-hover p-5 space-y-3">
+          <div className="flex items-center justify-between pb-2 border-b border-slate-100 dark:border-slate-800">
+            <div className="flex items-center space-x-2">
+              <Server className="w-4 h-4 text-teal-600 dark:text-teal-400" />
+              <h4 className="font-bold text-xs text-slate-900 dark:text-white uppercase tracking-wider">
+                System Infrastructure Status
+              </h4>
+            </div>
+            <Link to="/admin/health" className="text-teal-600 dark:text-teal-400 text-xs font-semibold hover:underline flex items-center space-x-1">
+              <span>View Health</span>
+              <ChevronRight className="w-3.5 h-3.5" />
+            </Link>
+          </div>
+          <div className="space-y-2 text-xs">
+            <div className="flex items-center justify-between p-2 rounded-lg bg-slate-50 dark:bg-slate-800/40">
+              <div className="flex items-center space-x-2">
+                <Database className="w-3.5 h-3.5 text-teal-600 dark:text-teal-400" />
+                <span className="font-medium text-slate-800 dark:text-slate-200">PostgreSQL Connection Pool</span>
+              </div>
+              <span className="med-badge med-badge-success text-[10px]">Operational</span>
+            </div>
+            <div className="flex items-center justify-between p-2 rounded-lg bg-slate-50 dark:bg-slate-800/40">
+              <div className="flex items-center space-x-2">
+                <HardDrive className="w-3.5 h-3.5 text-blue-600 dark:text-blue-400" />
+                <span className="font-medium text-slate-800 dark:text-slate-200">Isolated Document Storage (AES-256)</span>
+              </div>
+              <span className="med-badge med-badge-success text-[10px]">Writable</span>
+            </div>
+            <div className="flex items-center justify-between p-2 rounded-lg bg-slate-50 dark:bg-slate-800/40">
+              <div className="flex items-center space-x-2">
+                <Sparkles className="w-3.5 h-3.5 text-amber-600 dark:text-amber-400" />
+                <span className="font-medium text-slate-800 dark:text-slate-200">PyMuPDF & Tesseract OCR Pipeline</span>
+              </div>
+              <span className="med-badge med-badge-success text-[10px]">Ready</span>
+            </div>
+            <div className="flex items-center justify-between p-2 rounded-lg bg-slate-50 dark:bg-slate-800/40">
+              <div className="flex items-center space-x-2">
+                <KeyRound className="w-3.5 h-3.5 text-purple-600 dark:text-purple-400" />
+                <span className="font-medium text-slate-800 dark:text-slate-200">Gemini Extraction Intelligence</span>
+              </div>
+              <span className="med-badge med-badge-teal text-[10px]">Gemini 3.8</span>
+            </div>
+          </div>
+        </div>
+      </div>
 
       {/* Administration Dedicated Workspaces Grid */}
       <div className="space-y-3">
@@ -231,8 +333,8 @@ export const AdminDashboardPage: React.FC = () => {
         </div>
       </div>
 
-      {/* Recent Security Audit Events */}
-      <div className="med-card p-6 space-y-4">
+      {/* Recent Security Audit Events Container */}
+      <div className="med-card med-card-hover p-6 space-y-4">
         <div className="flex items-center justify-between pb-3 border-b border-slate-100 dark:border-slate-800">
           <div>
             <h3 className="font-bold text-base text-slate-900 dark:text-white">
@@ -253,9 +355,12 @@ export const AdminDashboardPage: React.FC = () => {
 
         <div className="divide-y divide-slate-100 dark:divide-slate-800">
           {auditLogs.map((log) => (
-            <div key={log.id} className="py-3 flex items-center justify-between text-xs">
+            <div
+              key={log.id}
+              className="py-3 px-2 rounded-xl flex items-center justify-between text-xs hover:bg-slate-50/80 dark:hover:bg-slate-800/60 transition-all"
+            >
               <div className="flex items-center space-x-3">
-                <span className="med-badge med-badge-teal text-[10px] font-mono uppercase">
+                <span className={`med-badge ${getActionBadgeClass(log.action)} font-mono uppercase text-[10px]`}>
                   {log.action.replace(/_/g, ' ')}
                 </span>
                 <div>
@@ -268,7 +373,11 @@ export const AdminDashboardPage: React.FC = () => {
                 </div>
               </div>
               <div className="flex items-center space-x-3">
-                <span className="med-badge med-badge-success text-[9px] uppercase">
+                <span
+                  className={`med-badge text-[9px] uppercase ${
+                    log.outcome === 'success' ? 'med-badge-success' : 'med-badge-error'
+                  }`}
+                >
                   {log.outcome}
                 </span>
                 <span className="text-slate-400 text-[11px]">

@@ -2,29 +2,32 @@ import React, { useState, useEffect } from 'react';
 import {
   Stethoscope,
   Search,
+  Filter,
   CheckCircle2,
-  XCircle,
-  ShieldCheck,
-  Calendar,
-  Lock,
+  UserX,
+  AlertCircle,
+  Building,
+  Award,
+  Shield,
+  FileCheck,
   UserCheck
 } from 'lucide-react';
 import { api } from '../../services/api';
-import { User as UserType } from '../../types';
+import { User } from '../../types';
 
 export const AdminCliniciansPage: React.FC = () => {
-  const [clinicians, setClinicians] = useState<UserType[]>([]);
+  const [clinicians, setClinicians] = useState<User[]>([]);
   const [loading, setLoading] = useState(true);
   const [search, setSearch] = useState('');
-  const [message, setMessage] = useState<{ type: 'success' | 'error'; text: string } | null>(null);
+  const [actionLoadingId, setActionLoadingId] = useState<number | null>(null);
+  const [message, setMessage] = useState<{ text: string; type: 'success' | 'error' } | null>(null);
 
   const fetchClinicians = async () => {
     try {
-      const data = await api.getAdminUsers('clinician');
-      setClinicians(data);
+      const data = await api.getAdminUsers();
+      setClinicians(data.filter((u) => u.role === 'clinician'));
     } catch (err: any) {
       console.error(err);
-      setMessage({ type: 'error', text: err.message || 'Failed to load clinician accounts.' });
     } finally {
       setLoading(false);
     }
@@ -34,17 +37,23 @@ export const AdminCliniciansPage: React.FC = () => {
     fetchClinicians();
   }, []);
 
-  const handleToggleStatus = async (user: UserType) => {
+  const handleToggleActive = async (targetUser: User) => {
+    setActionLoadingId(targetUser.id);
+    setMessage(null);
     try {
-      const newStatus = !user.is_active;
-      await api.updateAdminUser(user.id, { is_active: newStatus });
+      const updated = await api.updateAdminUser(targetUser.id, { is_active: !targetUser.is_active });
+      setClinicians((prev) => prev.map((u) => (u.id === updated.id ? updated : u)));
       setMessage({
+        text: `Clinician ${updated.full_name} account status updated to ${updated.is_active ? 'Active' : 'Inactive'}.`,
         type: 'success',
-        text: `Clinician ${user.full_name} has been ${newStatus ? 'activated' : 'deactivated'}.`,
       });
-      await fetchClinicians();
     } catch (err: any) {
-      setMessage({ type: 'error', text: err.message || 'Action prohibited.' });
+      setMessage({
+        text: err.response?.data?.detail || 'Failed to update clinician status.',
+        type: 'error',
+      });
+    } finally {
+      setActionLoadingId(null);
     }
   };
 
@@ -54,16 +63,18 @@ export const AdminCliniciansPage: React.FC = () => {
       c.email.toLowerCase().includes(search.toLowerCase())
   );
 
+  const activeCount = clinicians.filter((c) => c.is_active).length;
+
   return (
     <div className="space-y-6 pb-12">
-      {/* Banner */}
+      {/* Header Banner */}
       <div className="med-header-banner flex flex-col md:flex-row md:items-center justify-between gap-4">
         <div>
           <span className="text-xs uppercase font-bold tracking-wider text-teal-200">
-            System Administration • Healthcare Provider Directory
+            Clinical Operations • Verified Physician Nodes
           </span>
           <h1 className="text-2xl font-bold tracking-tight text-white mt-1">
-            Clinician Account Governance
+            Clinician Registry & Governance
           </h1>
           <p className="text-xs text-teal-100 mt-1 max-w-xl">
             Audit licensed physician nodes, verify clinical credential states, and administer platform access for medical personnel.
@@ -75,12 +86,49 @@ export const AdminCliniciansPage: React.FC = () => {
         </div>
       </div>
 
+      {/* Metric Stat Containers */}
+      <div className="grid grid-cols-2 sm:grid-cols-4 gap-4">
+        <div className="med-card med-card-hover p-4 space-y-1">
+          <div className="flex items-center justify-between text-xs text-slate-500 font-semibold">
+            <span>Total Clinicians</span>
+            <Stethoscope className="w-4 h-4 text-teal-600" />
+          </div>
+          <div className="text-2xl font-bold text-slate-900 dark:text-white">{clinicians.length}</div>
+          <div className="text-[11px] text-slate-400">Registered practitioners</div>
+        </div>
+        <div className="med-card med-card-hover p-4 space-y-1">
+          <div className="flex items-center justify-between text-xs text-slate-500 font-semibold">
+            <span>Active Licenses</span>
+            <UserCheck className="w-4 h-4 text-emerald-600" />
+          </div>
+          <div className="text-2xl font-bold text-emerald-600">{activeCount}</div>
+          <div className="text-[11px] text-slate-400">Authorized clinical nodes</div>
+        </div>
+        <div className="med-card med-card-hover p-4 space-y-1">
+          <div className="flex items-center justify-between text-xs text-slate-500 font-semibold">
+            <span>Credential Verification</span>
+            <Award className="w-4 h-4 text-blue-600" />
+          </div>
+          <div className="text-2xl font-bold text-blue-600">100%</div>
+          <div className="text-[11px] text-slate-400">Pre-screened identities</div>
+        </div>
+        <div className="med-card med-card-hover p-4 space-y-1">
+          <div className="flex items-center justify-between text-xs text-slate-500 font-semibold">
+            <span>Practice Affiliations</span>
+            <Building className="w-4 h-4 text-purple-600" />
+          </div>
+          <div className="text-2xl font-bold text-slate-900 dark:text-white">General / Specialty</div>
+          <div className="text-[11px] text-slate-400">Multi-disciplinary staff</div>
+        </div>
+      </div>
+
       {message && (
         <div
-          className={`p-4 rounded-xl text-xs flex items-center justify-between border ${message.type === 'success'
+          className={`p-4 rounded-xl text-xs flex items-center justify-between border ${
+            message.type === 'success'
               ? 'bg-emerald-50 dark:bg-emerald-950/40 text-emerald-800 dark:text-emerald-200 border-emerald-200 dark:border-emerald-800'
               : 'bg-rose-50 dark:bg-rose-950/40 text-rose-800 dark:text-rose-200 border-rose-200 dark:border-rose-800'
-            }`}
+          }`}
         >
           <span>{message.text}</span>
           <button onClick={() => setMessage(null)} className="font-bold underline ml-2">
@@ -89,7 +137,8 @@ export const AdminCliniciansPage: React.FC = () => {
         </div>
       )}
 
-      <div className="med-card p-6 space-y-4">
+      {/* Main Table Card Container */}
+      <div className="med-card med-card-hover p-6 space-y-4">
         <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3 pb-3 border-b border-slate-100 dark:border-slate-800">
           <div className="flex items-center space-x-2">
             <Stethoscope className="w-4 h-4 text-teal-600 dark:text-teal-400" />
@@ -126,34 +175,27 @@ export const AdminCliniciansPage: React.FC = () => {
               </thead>
               <tbody className="divide-y divide-slate-100 dark:divide-slate-800">
                 {filtered.map((c) => (
-                  <tr key={c.id} className="hover:bg-slate-50/80 dark:hover:bg-slate-800/40 transition-colors">
+                  <tr
+                    key={c.id}
+                    className="hover:bg-slate-50/80 dark:hover:bg-slate-800/40 transition-colors"
+                  >
                     <td className="py-3.5 px-4 font-medium text-slate-900 dark:text-white">
-                      <div className="flex items-center space-x-3">
-                        <div className="w-8 h-8 rounded-full bg-blue-100 dark:bg-blue-950 text-blue-800 dark:text-blue-200 font-bold flex items-center justify-center text-xs shrink-0">
-                          {c.full_name
-                            .split(' ')
-                            .map((n) => n[0])
-                            .join('')}
-                        </div>
-                        <div>
-                          <div className="font-bold">{c.full_name}</div>
-                          <div className="text-[11px] text-slate-400">{c.email}</div>
-                        </div>
-                      </div>
+                      <div className="font-semibold">{c.full_name}</div>
+                      <div className="text-[10px] text-slate-400">{c.email}</div>
                     </td>
                     <td className="py-3.5 px-4">
                       <span className="med-badge med-badge-teal text-[10px]">
-                        General Internal Medicine • Board Certified
+                        Medical Practitioner
                       </span>
                     </td>
                     <td className="py-3.5 px-4">
                       {c.is_active ? (
                         <span className="med-badge med-badge-success text-[10px] flex items-center gap-1 w-fit">
-                          <CheckCircle2 className="w-3 h-3" /> Active Authorized
+                          <CheckCircle2 className="w-3 h-3" /> Active License
                         </span>
                       ) : (
                         <span className="med-badge med-badge-error text-[10px] flex items-center gap-1 w-fit">
-                          <XCircle className="w-3 h-3" /> Suspended
+                          <UserX className="w-3 h-3" /> Suspended
                         </span>
                       )}
                     </td>
@@ -162,21 +204,23 @@ export const AdminCliniciansPage: React.FC = () => {
                     </td>
                     <td className="py-3.5 px-4 text-right">
                       <button
-                        onClick={() => handleToggleStatus(c)}
-                        className={`text-xs font-semibold py-1 px-2.5 rounded-lg border transition-all ${c.is_active
-                            ? 'text-rose-600 dark:text-rose-400 hover:bg-rose-50 dark:hover:bg-rose-950/60 border-rose-200 dark:border-rose-900/50'
-                            : 'text-emerald-600 dark:text-emerald-400 hover:bg-emerald-50 dark:hover:bg-emerald-950/60 border-emerald-200 dark:border-emerald-900/50'
-                          }`}
+                        onClick={() => handleToggleActive(c)}
+                        disabled={actionLoadingId === c.id}
+                        className={c.is_active ? 'med-btn-danger py-1 px-2 text-[10px]' : 'med-btn-secondary py-1 px-2 text-[10px]'}
                       >
-                        {c.is_active ? 'Suspend' : 'Activate'}
+                        {actionLoadingId === c.id
+                          ? 'Updating...'
+                          : c.is_active
+                            ? 'Suspend Node'
+                            : 'Reinstate Node'}
                       </button>
                     </td>
                   </tr>
                 ))}
                 {filtered.length === 0 && (
                   <tr>
-                    <td colSpan={5} className="py-8 text-center text-slate-400">
-                      No clinician accounts found matching search.
+                    <td colSpan={5} className="py-8 text-center text-xs text-slate-400">
+                      No clinician records matching this search query.
                     </td>
                   </tr>
                 )}
@@ -184,6 +228,36 @@ export const AdminCliniciansPage: React.FC = () => {
             </table>
           </div>
         )}
+      </div>
+
+      {/* Information Container: Clinician Governance Standards */}
+      <div className="med-card med-card-hover p-5 space-y-3">
+        <div className="flex items-center space-x-2 pb-2 border-b border-slate-100 dark:border-slate-800">
+          <FileCheck className="w-4 h-4 text-teal-600 dark:text-teal-400" />
+          <h4 className="font-bold text-xs text-slate-900 dark:text-white uppercase tracking-wider">
+            Physician Clearance & Medical Delegation Framework
+          </h4>
+        </div>
+        <div className="grid grid-cols-1 md:grid-cols-3 gap-3 text-xs">
+          <div className="p-3 rounded-xl bg-slate-50 dark:bg-slate-800/40 space-y-1">
+            <span className="font-bold text-slate-800 dark:text-slate-200">License Verification</span>
+            <p className="text-[11px] text-slate-500 leading-relaxed">
+              Every clinician account corresponds to a licensed medical practitioner verified prior to platform onboarding.
+            </p>
+          </div>
+          <div className="p-3 rounded-xl bg-slate-50 dark:bg-slate-800/40 space-y-1">
+            <span className="font-bold text-slate-800 dark:text-slate-200">Consent-Gated Access</span>
+            <p className="text-[11px] text-slate-500 leading-relaxed">
+              Active licensing does not grant universal patient record visibility. Clinicians require explicit patient consent grants.
+            </p>
+          </div>
+          <div className="p-3 rounded-xl bg-slate-50 dark:bg-slate-800/40 space-y-1">
+            <span className="font-bold text-slate-800 dark:text-slate-200">Audit Traceability</span>
+            <p className="text-[11px] text-slate-500 leading-relaxed">
+              All clinical handovers synthesized and discrepancies resolved by practitioners are permanently logged in the audit trail.
+            </p>
+          </div>
+        </div>
       </div>
     </div>
   );

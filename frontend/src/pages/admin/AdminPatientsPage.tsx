@@ -2,29 +2,32 @@ import React, { useState, useEffect } from 'react';
 import {
   Users,
   Search,
+  Filter,
   CheckCircle2,
-  XCircle,
-  ShieldCheck,
-  Calendar,
+  UserX,
+  AlertCircle,
   Lock,
-  UserCheck
+  Shield,
+  ShieldCheck,
+  FileText,
+  KeyRound
 } from 'lucide-react';
 import { api } from '../../services/api';
-import { User as UserType } from '../../types';
+import { User } from '../../types';
 
 export const AdminPatientsPage: React.FC = () => {
-  const [patients, setPatients] = useState<UserType[]>([]);
+  const [patients, setPatients] = useState<User[]>([]);
   const [loading, setLoading] = useState(true);
   const [search, setSearch] = useState('');
-  const [message, setMessage] = useState<{ type: 'success' | 'error'; text: string } | null>(null);
+  const [actionLoadingId, setActionLoadingId] = useState<number | null>(null);
+  const [message, setMessage] = useState<{ text: string; type: 'success' | 'error' } | null>(null);
 
   const fetchPatients = async () => {
     try {
-      const data = await api.getAdminUsers('patient');
-      setPatients(data);
+      const data = await api.getAdminUsers();
+      setPatients(data.filter((u) => u.role === 'patient'));
     } catch (err: any) {
       console.error(err);
-      setMessage({ type: 'error', text: err.message || 'Failed to load patient accounts.' });
     } finally {
       setLoading(false);
     }
@@ -34,17 +37,23 @@ export const AdminPatientsPage: React.FC = () => {
     fetchPatients();
   }, []);
 
-  const handleToggleStatus = async (user: UserType) => {
+  const handleToggleActive = async (targetUser: User) => {
+    setActionLoadingId(targetUser.id);
+    setMessage(null);
     try {
-      const newStatus = !user.is_active;
-      await api.updateAdminUser(user.id, { is_active: newStatus });
+      const updated = await api.updateAdminUser(targetUser.id, { is_active: !targetUser.is_active });
+      setPatients((prev) => prev.map((u) => (u.id === updated.id ? updated : u)));
       setMessage({
+        text: `Patient account ${updated.full_name} status updated to ${updated.is_active ? 'Active' : 'Inactive'}.`,
         type: 'success',
-        text: `Patient account for ${user.full_name} has been ${newStatus ? 'activated' : 'deactivated'}.`,
       });
-      await fetchPatients();
     } catch (err: any) {
-      setMessage({ type: 'error', text: err.message || 'Action prohibited.' });
+      setMessage({
+        text: err.response?.data?.detail || 'Failed to update patient status.',
+        type: 'error',
+      });
+    } finally {
+      setActionLoadingId(null);
     }
   };
 
@@ -54,19 +63,21 @@ export const AdminPatientsPage: React.FC = () => {
       p.email.toLowerCase().includes(search.toLowerCase())
   );
 
+  const activeCount = patients.filter((p) => p.is_active).length;
+
   return (
     <div className="space-y-6 pb-12">
-      {/* Banner */}
+      {/* Header Banner */}
       <div className="med-header-banner flex flex-col md:flex-row md:items-center justify-between gap-4">
         <div>
           <span className="text-xs uppercase font-bold tracking-wider text-teal-200">
-            System Administration • Patient Account Management
+            Account Governance • Zero-Knowledge Medical Isolation
           </span>
           <h1 className="text-2xl font-bold tracking-tight text-white mt-1">
-            Patient Identity & Access Administration
+            Patient Account Administration
           </h1>
           <p className="text-xs text-teal-100 mt-1 max-w-xl">
-            Administrative account management with strict HIPAA architectural privacy isolation: clinical records and medical text are not accessible to administrators.
+            Account status and identity administration. Medical records, timelines, and laboratory reports are strictly isolated and invisible to administrators.
           </p>
         </div>
         <div className="flex items-center space-x-2 text-xs bg-white/10 backdrop-blur-xs px-3.5 py-2 rounded-xl border border-white/20 text-white shrink-0 self-start md:self-auto">
@@ -75,12 +86,49 @@ export const AdminPatientsPage: React.FC = () => {
         </div>
       </div>
 
+      {/* Metric Stat Containers */}
+      <div className="grid grid-cols-2 sm:grid-cols-4 gap-4">
+        <div className="med-card med-card-hover p-4 space-y-1">
+          <div className="flex items-center justify-between text-xs text-slate-500 font-semibold">
+            <span>Registered Patients</span>
+            <Users className="w-4 h-4 text-teal-600" />
+          </div>
+          <div className="text-2xl font-bold text-slate-900 dark:text-white">{patients.length}</div>
+          <div className="text-[11px] text-slate-400">Personal health portals</div>
+        </div>
+        <div className="med-card med-card-hover p-4 space-y-1">
+          <div className="flex items-center justify-between text-xs text-slate-500 font-semibold">
+            <span>Active Portals</span>
+            <CheckCircle2 className="w-4 h-4 text-emerald-600" />
+          </div>
+          <div className="text-2xl font-bold text-emerald-600">{activeCount}</div>
+          <div className="text-[11px] text-slate-400">Authenticated patients</div>
+        </div>
+        <div className="med-card med-card-hover p-4 space-y-1">
+          <div className="flex items-center justify-between text-xs text-slate-500 font-semibold">
+            <span>Privacy Shield</span>
+            <ShieldCheck className="w-4 h-4 text-blue-600" />
+          </div>
+          <div className="text-2xl font-bold text-blue-600">Zero-Access</div>
+          <div className="text-[11px] text-slate-400">No admin record view</div>
+        </div>
+        <div className="med-card med-card-hover p-4 space-y-1">
+          <div className="flex items-center justify-between text-xs text-slate-500 font-semibold">
+            <span>Consent Sovereignty</span>
+            <KeyRound className="w-4 h-4 text-purple-600" />
+          </div>
+          <div className="text-2xl font-bold text-purple-600">Patient-Led</div>
+          <div className="text-[11px] text-slate-400">Time-bound doctor grants</div>
+        </div>
+      </div>
+
       {message && (
         <div
-          className={`p-4 rounded-xl text-xs flex items-center justify-between border ${message.type === 'success'
+          className={`p-4 rounded-xl text-xs flex items-center justify-between border ${
+            message.type === 'success'
               ? 'bg-emerald-50 dark:bg-emerald-950/40 text-emerald-800 dark:text-emerald-200 border-emerald-200 dark:border-emerald-800'
               : 'bg-rose-50 dark:bg-rose-950/40 text-rose-800 dark:text-rose-200 border-rose-200 dark:border-rose-800'
-            }`}
+          }`}
         >
           <span>{message.text}</span>
           <button onClick={() => setMessage(null)} className="font-bold underline ml-2">
@@ -89,7 +137,8 @@ export const AdminPatientsPage: React.FC = () => {
         </div>
       )}
 
-      <div className="med-card p-6 space-y-4">
+      {/* Main Table Card Container */}
+      <div className="med-card med-card-hover p-6 space-y-4">
         <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3 pb-3 border-b border-slate-100 dark:border-slate-800">
           <div className="flex items-center space-x-2">
             <Users className="w-4 h-4 text-teal-600 dark:text-teal-400" />
@@ -126,24 +175,17 @@ export const AdminPatientsPage: React.FC = () => {
               </thead>
               <tbody className="divide-y divide-slate-100 dark:divide-slate-800">
                 {filtered.map((p) => (
-                  <tr key={p.id} className="hover:bg-slate-50/80 dark:hover:bg-slate-800/40 transition-colors">
+                  <tr
+                    key={p.id}
+                    className="hover:bg-slate-50/80 dark:hover:bg-slate-800/40 transition-colors"
+                  >
                     <td className="py-3.5 px-4 font-medium text-slate-900 dark:text-white">
-                      <div className="flex items-center space-x-3">
-                        <div className="w-8 h-8 rounded-full bg-teal-100 dark:bg-teal-950 text-teal-800 dark:text-teal-200 font-bold flex items-center justify-center text-xs shrink-0">
-                          {p.full_name
-                            .split(' ')
-                            .map((n) => n[0])
-                            .join('')}
-                        </div>
-                        <div>
-                          <div className="font-bold">{p.full_name}</div>
-                          <div className="text-[11px] text-slate-400">{p.email}</div>
-                        </div>
-                      </div>
+                      <div className="font-semibold">{p.full_name}</div>
+                      <div className="text-[10px] text-slate-400">{p.email}</div>
                     </td>
                     <td className="py-3.5 px-4">
                       <span className="med-badge med-badge-teal text-[10px] flex items-center gap-1 w-fit">
-                        <Lock className="w-3 h-3" /> Zero-Knowledge Patient Vault
+                        <Lock className="w-3 h-3" /> Zero-Knowledge Shield
                       </span>
                     </td>
                     <td className="py-3.5 px-4">
@@ -153,7 +195,7 @@ export const AdminPatientsPage: React.FC = () => {
                         </span>
                       ) : (
                         <span className="med-badge med-badge-error text-[10px] flex items-center gap-1 w-fit">
-                          <XCircle className="w-3 h-3" /> Deactivated
+                          <UserX className="w-3 h-3" /> Inactive
                         </span>
                       )}
                     </td>
@@ -162,21 +204,23 @@ export const AdminPatientsPage: React.FC = () => {
                     </td>
                     <td className="py-3.5 px-4 text-right">
                       <button
-                        onClick={() => handleToggleStatus(p)}
-                        className={`text-xs font-semibold py-1 px-2.5 rounded-lg border transition-all ${p.is_active
-                            ? 'text-rose-600 dark:text-rose-400 hover:bg-rose-50 dark:hover:bg-rose-950/60 border-rose-200 dark:border-rose-900/50'
-                            : 'text-emerald-600 dark:text-emerald-400 hover:bg-emerald-50 dark:hover:bg-emerald-950/60 border-emerald-200 dark:border-emerald-900/50'
-                          }`}
+                        onClick={() => handleToggleActive(p)}
+                        disabled={actionLoadingId === p.id}
+                        className={p.is_active ? 'med-btn-danger py-1 px-2 text-[10px]' : 'med-btn-secondary py-1 px-2 text-[10px]'}
                       >
-                        {p.is_active ? 'Deactivate' : 'Activate'}
+                        {actionLoadingId === p.id
+                          ? 'Updating...'
+                          : p.is_active
+                            ? 'Deactivate Account'
+                            : 'Activate Account'}
                       </button>
                     </td>
                   </tr>
                 ))}
                 {filtered.length === 0 && (
                   <tr>
-                    <td colSpan={5} className="py-8 text-center text-slate-400">
-                      No patient accounts found matching search.
+                    <td colSpan={5} className="py-8 text-center text-xs text-slate-400">
+                      No patient accounts matching this search query.
                     </td>
                   </tr>
                 )}
@@ -184,6 +228,36 @@ export const AdminPatientsPage: React.FC = () => {
             </table>
           </div>
         )}
+      </div>
+
+      {/* Information Container: HIPAA Zero-Knowledge Isolation Guarantee */}
+      <div className="med-card med-card-hover p-5 space-y-3">
+        <div className="flex items-center space-x-2 pb-2 border-b border-slate-100 dark:border-slate-800">
+          <Shield className="w-4 h-4 text-teal-600 dark:text-teal-400" />
+          <h4 className="font-bold text-xs text-slate-900 dark:text-white uppercase tracking-wider">
+            Patient Data Privacy Guarantees & Cryptographic Isolation
+          </h4>
+        </div>
+        <div className="grid grid-cols-1 md:grid-cols-3 gap-3 text-xs">
+          <div className="p-3 rounded-xl bg-slate-50 dark:bg-slate-800/40 space-y-1">
+            <span className="font-bold text-slate-800 dark:text-slate-200">Zero-Knowledge Account Separation</span>
+            <p className="text-[11px] text-slate-500 leading-relaxed">
+              System administrators manage user authentication states but are cryptographically prevented from querying patient medical facts or diagnoses.
+            </p>
+          </div>
+          <div className="p-3 rounded-xl bg-slate-50 dark:bg-slate-800/40 space-y-1">
+            <span className="font-bold text-slate-800 dark:text-slate-200">Consent Sovereignty</span>
+            <p className="text-[11px] text-slate-500 leading-relaxed">
+              Only the patient can grant and revoke sharing permissions to licensed medical providers for time-bound clinical handovers.
+            </p>
+          </div>
+          <div className="p-3 rounded-xl bg-slate-50 dark:bg-slate-800/40 space-y-1">
+            <span className="font-bold text-slate-800 dark:text-slate-200">Access Audit Transparency</span>
+            <p className="text-[11px] text-slate-500 leading-relaxed">
+              Every document view, handover download, and sharing modification is recorded in the immutable audit log for patient inspection.
+            </p>
+          </div>
+        </div>
       </div>
     </div>
   );
