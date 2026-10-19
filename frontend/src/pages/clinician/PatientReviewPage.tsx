@@ -14,7 +14,8 @@ import {
   Calendar,
   Pill,
   Send,
-  UserCheck
+  UserCheck,
+  Network
 } from 'lucide-react';
 import { api } from '../../services/api';
 import {
@@ -22,9 +23,11 @@ import {
   ExtractedFact,
   Discrepancy,
   SummaryResponseData,
-  LabTrendSeries
+  LabTrendSeries,
+  RelationshipGraphResponse
 } from '../../types';
 import { EvidenceModal } from '../../components/EvidenceModal';
+import { MedicalRelationshipMap } from '../../components/MedicalRelationshipMap';
 import {
   LineChart as RechartsLineChart,
   Line,
@@ -39,12 +42,14 @@ export const PatientReviewPage: React.FC = () => {
   const { patientId } = useParams<{ patientId: string }>();
   const pId = Number(patientId);
 
-  const [activeTab, setActiveTab] = useState<'timeline' | 'labs' | 'handover' | 'discrepancies' | 'docs'>('discrepancies');
+  const [activeTab, setActiveTab] = useState<'timeline' | 'map' | 'labs' | 'handover' | 'discrepancies' | 'docs'>('discrepancies');
   const [documents, setDocuments] = useState<MedicalDocument[]>([]);
   const [facts, setFacts] = useState<ExtractedFact[]>([]);
   const [discrepancies, setDiscrepancies] = useState<Discrepancy[]>([]);
   const [labTrends, setLabTrends] = useState<LabTrendSeries[]>([]);
   const [handover, setHandover] = useState<SummaryResponseData | null>(null);
+  const [graphData, setGraphData] = useState<RelationshipGraphResponse | null>(null);
+  const [graphLoading, setGraphLoading] = useState(false);
   const [loading, setLoading] = useState(true);
   const [evidenceData, setEvidenceData] = useState<any | null>(null);
 
@@ -68,6 +73,18 @@ export const PatientReviewPage: React.FC = () => {
       console.error('Failed to load patient clinical records:', err);
     } finally {
       setLoading(false);
+    }
+  };
+
+  const fetchGraph = async () => {
+    setGraphLoading(true);
+    try {
+      const res = await api.getRelationshipGraph(pId);
+      setGraphData(res);
+    } catch (err) {
+      console.error('Failed to load patient relationship graph:', err);
+    } finally {
+      setGraphLoading(false);
     }
   };
 
@@ -171,6 +188,7 @@ export const PatientReviewPage: React.FC = () => {
         {[
           { id: 'discrepancies', label: `Discrepancies (${discrepancies.length})`, icon: AlertTriangle },
           { id: 'timeline', label: `Timeline (${facts.length})`, icon: Clock },
+          { id: 'map', label: 'Relationship Map', icon: Network },
           { id: 'labs', label: `Lab Trends (${labTrends.length})`, icon: LineChart },
           { id: 'handover', label: 'Clinical Handover', icon: FileCheck2 },
           { id: 'docs', label: `Shared Records (${documents.length})`, icon: FileText },
@@ -180,7 +198,12 @@ export const PatientReviewPage: React.FC = () => {
           return (
             <button
               key={tab.id}
-              onClick={() => setActiveTab(tab.id as any)}
+              onClick={() => {
+                setActiveTab(tab.id as any);
+                if (tab.id === 'map' && !graphData) {
+                  fetchGraph();
+                }
+              }}
               className={isActive ? 'med-btn-primary' : 'med-btn-secondary'}
             >
               <Icon className="w-4 h-4" />
@@ -189,6 +212,11 @@ export const PatientReviewPage: React.FC = () => {
           );
         })}
       </div>
+
+      {/* Tab: Medical Relationship Map */}
+      {activeTab === 'map' && (
+        <MedicalRelationshipMap graphData={graphData} loading={graphLoading} />
+      )}
 
       {/* Tab 1: Medication Reconciliation & Discrepancies */}
       {activeTab === 'discrepancies' && (

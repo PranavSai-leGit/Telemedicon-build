@@ -1,4 +1,5 @@
 import React, { useState, useEffect } from 'react';
+import { Link } from 'react-router-dom';
 import {
   ShieldCheck,
   Users,
@@ -11,33 +12,34 @@ import {
   Server,
   RefreshCw,
   Clock,
-  ShieldAlert
+  ShieldAlert,
+  Settings,
+  HardDrive,
+  Sparkles,
+  ArrowRight,
+  Database,
+  ChevronRight
 } from 'lucide-react';
 import { api } from '../../services/api';
-import { AdminStats, User as UserType, AuditEventItem } from '../../types';
+import { AdminStats, AuditEventItem } from '../../types';
 import { useAuth } from '../../contexts/AuthContext';
 
 export const AdminDashboardPage: React.FC = () => {
   const { user } = useAuth();
   const [stats, setStats] = useState<AdminStats | null>(null);
-  const [usersList, setUsersList] = useState<UserType[]>([]);
   const [auditLogs, setAuditLogs] = useState<AuditEventItem[]>([]);
   const [loading, setLoading] = useState(true);
-  const [message, setMessage] = useState<{ type: 'success' | 'error'; text: string } | null>(null);
 
   const fetchData = async () => {
     try {
-      const [statsRes, usersRes, logsRes] = await Promise.all([
+      const [statsRes, logsRes] = await Promise.all([
         api.getAdminStats(),
-        api.getAdminUsers(),
-        api.getAuditLogs(30),
+        api.getAuditLogs(10),
       ]);
       setStats(statsRes);
-      setUsersList(usersRes);
       setAuditLogs(logsRes);
     } catch (err: any) {
       console.error(err);
-      setMessage({ type: 'error', text: err.message || 'Failed to load administrator data.' });
     } finally {
       setLoading(false);
     }
@@ -47,259 +49,239 @@ export const AdminDashboardPage: React.FC = () => {
     fetchData();
   }, []);
 
-  const handleToggleUserStatus = async (targetUser: UserType) => {
-    try {
-      const newStatus = !targetUser.is_active;
-      await api.updateAdminUser(targetUser.id, { is_active: newStatus });
-      setMessage({
-        type: 'success',
-        text: `User ${targetUser.full_name} has been ${newStatus ? 'activated' : 'deactivated'}.`,
-      });
-      await fetchData();
-    } catch (err: any) {
-      setMessage({ type: 'error', text: err.message || 'Action prohibited.' });
-    }
-  };
-
-  const handleChangeRole = async (targetUser: UserType, newRole: string) => {
-    try {
-      await api.updateAdminUser(targetUser.id, { role: newRole });
-      setMessage({
-        type: 'success',
-        text: `Role for ${targetUser.full_name} updated to ${newRole}.`,
-      });
-      await fetchData();
-    } catch (err: any) {
-      setMessage({ type: 'error', text: err.message || 'Action prohibited.' });
-    }
-  };
-
   return (
-    <div className="space-y-8 pb-12">
+    <div className="space-y-6 pb-12">
       {/* Administrator Header */}
-      <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4">
+      <div className="med-header-banner flex flex-col md:flex-row md:items-center justify-between gap-4">
         <div>
-          <div className="flex items-center space-x-2">
-            <h1 className="text-2xl font-bold tracking-tight text-slate-900 dark:text-white">
-              System Administration & Security
-            </h1>
-            <span className="px-2.5 py-0.5 rounded-full text-[10px] font-bold bg-purple-100 text-purple-800 dark:bg-purple-950/70 dark:text-purple-300 border border-purple-200 dark:border-purple-800">
-              Admin Governance
-            </span>
-          </div>
-          <p className="text-xs sm:text-sm text-slate-500 dark:text-slate-400 mt-1">
-            System health monitoring, role-based account management, and security audit logging.
+          <span className="text-xs uppercase font-bold tracking-wider text-teal-200">
+            Platform Operations • Administrator Portal
+          </span>
+          <h1 className="text-2xl font-bold tracking-tight text-white mt-1">
+            System Administration Overview
+          </h1>
+          <p className="text-xs text-teal-100 mt-1 max-w-xl">
+            System health, document processing throughput, user account governance, and HIPAA security compliance monitoring.
           </p>
         </div>
-
-        <button
-          onClick={fetchData}
-          className="p-2 text-slate-500 hover:text-slate-800 dark:text-slate-400 dark:hover:text-slate-200 hover:bg-slate-100 dark:hover:bg-slate-800 rounded-xl transition-colors self-start sm:self-auto"
-          title="Refresh metrics"
-        >
-          <RefreshCw className="w-5 h-5" />
-        </button>
-      </div>
-
-      {/* Strict Privacy Shield Banner */}
-      <div className="p-4 rounded-xl bg-teal-50/60 dark:bg-teal-950/30 border border-teal-200/60 dark:border-teal-900/40 text-xs text-teal-900 dark:text-teal-300 flex items-start space-x-3">
-        <ShieldCheck className="w-5 h-5 text-teal-700 dark:text-teal-400 shrink-0 mt-0.5" />
-        <div>
-          <span className="font-bold">Healthcare Privacy & Segregation Policy:</span>
-          <p className="text-[11px] mt-0.5 text-teal-800 dark:text-teal-300">
-            Administrators manage system identities and access permissions only. Under MediTale's zero-knowledge clinical isolation policy, medical documents and clinical notes are never exposed in administrative views.
-          </p>
+        <div className="flex items-center space-x-2 text-xs bg-white/10 backdrop-blur-xs px-3.5 py-2 rounded-xl border border-white/20 text-white shrink-0 self-start md:self-auto">
+          <Lock className="w-4 h-4 text-emerald-300" />
+          <span>Clinical Text Redacted / RBAC Guarded</span>
         </div>
       </div>
 
-      {message && (
-        <div
-          className={`p-4 rounded-xl border flex items-start space-x-3 text-xs font-medium ${
-            message.type === 'success'
-              ? 'bg-emerald-50 dark:bg-emerald-950/40 border-emerald-200 dark:border-emerald-800 text-emerald-800 dark:text-emerald-200'
-              : 'bg-rose-50 dark:bg-rose-950/40 border-rose-200 dark:border-rose-800 text-rose-800 dark:text-rose-200'
-          }`}
-        >
-          <AlertCircle className="w-4 h-4 shrink-0 mt-0.5" />
-          <span>{message.text}</span>
-        </div>
-      )}
-
-      {/* System Metrics Grid */}
+      {/* KPI Cards */}
       {stats && (
-        <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-4">
-          <div className="med-card p-5">
-            <span className="text-xs font-semibold text-slate-500 dark:text-slate-400">Total Registered Users</span>
-            <div className="mt-3 flex items-baseline space-x-2">
-              <span className="text-3xl font-bold tracking-tight text-slate-900 dark:text-white">
+        <div className="grid grid-cols-2 sm:grid-cols-4 gap-4">
+          <div className="med-card p-5 space-y-2">
+            <div className="flex items-center justify-between">
+              <span className="text-xs font-semibold text-slate-500">Total Users</span>
+              <div className="p-2 rounded-xl bg-teal-50 dark:bg-teal-950/60 text-teal-600">
+                <Users className="w-4 h-4" />
+              </div>
+            </div>
+            <div className="flex items-baseline space-x-2">
+              <span className="text-2xl sm:text-3xl font-bold text-slate-900 dark:text-white">
                 {stats.users.total}
               </span>
-              <span className="text-xs text-slate-400">accounts</span>
+              <span className="text-xs text-emerald-600 font-semibold">{stats.users.active} active</span>
             </div>
-            <div className="mt-2 text-[11px] text-slate-500 dark:text-slate-400 flex items-center space-x-2">
-              <span>{stats.users.patients} Patients</span>
-              <span>•</span>
-              <span>{stats.users.clinicians} Clinicians</span>
-              <span>•</span>
-              <span>{stats.users.administrators} Admins</span>
+            <div className="text-[11px] text-slate-400">
+              {stats.users.patients} patients • {stats.users.clinicians} clinicians
             </div>
           </div>
 
-          <div className="med-card p-5">
-            <span className="text-xs font-semibold text-slate-500 dark:text-slate-400">Documents Ingested</span>
-            <div className="mt-3 flex items-baseline space-x-2">
-              <span className="text-3xl font-bold tracking-tight text-slate-900 dark:text-white">
+          <div className="med-card p-5 space-y-2">
+            <div className="flex items-center justify-between">
+              <span className="text-xs font-semibold text-slate-500">Processed Records</span>
+              <div className="p-2 rounded-xl bg-blue-50 dark:bg-blue-950/60 text-blue-600">
+                <FileText className="w-4 h-4" />
+              </div>
+            </div>
+            <div className="flex items-baseline space-x-2">
+              <span className="text-2xl sm:text-3xl font-bold text-slate-900 dark:text-white">
                 {stats.documents.total_processed}
               </span>
-              <span className="text-xs text-emerald-700 dark:text-emerald-400 font-medium">{stats.documents.completed} completed</span>
+              <span className="text-xs text-emerald-600 font-semibold">{stats.documents.completed} completed</span>
             </div>
-            <div className="mt-2 text-[11px] text-slate-400">
-              Duplicates Flagged: {stats.documents.duplicates_detected} (SHA-256)
-            </div>
-          </div>
-
-          <div className="med-card p-5">
-            <span className="text-xs font-semibold text-slate-500 dark:text-slate-400">Database Engine</span>
-            <div className="mt-3 flex items-baseline space-x-2">
-              <span className="text-xl font-bold text-slate-900 dark:text-white">PostgreSQL 18</span>
-              <span className="text-xs text-emerald-700 dark:text-emerald-400 font-medium">JSONB Active</span>
-            </div>
-            <div className="mt-2 text-[11px] text-slate-400">
-              Driver: Psycopg 3 Pool
+            <div className="text-[11px] text-slate-400">
+              {stats.documents.duplicates_detected} duplicates prevented
             </div>
           </div>
 
-          <div className="med-card p-5">
-            <span className="text-xs font-semibold text-slate-500 dark:text-slate-400">AI Service Health</span>
-            <div className="mt-3 flex items-baseline space-x-2">
-              <span className="text-xl font-bold text-slate-900 dark:text-white">Gemini + Demo</span>
-              <span className="text-xs text-emerald-700 dark:text-emerald-400 font-medium">Ready</span>
+          <div className="med-card p-5 space-y-2">
+            <div className="flex items-center justify-between">
+              <span className="text-xs font-semibold text-slate-500">Database Engine</span>
+              <div className="p-2 rounded-xl bg-purple-50 dark:bg-purple-950/60 text-purple-600">
+                <Database className="w-4 h-4" />
+              </div>
             </div>
-            <div className="mt-2 text-[11px] text-slate-400">
-              Structured Pydantic Validation
+            <div className="flex items-baseline space-x-2">
+              <span className="text-lg font-bold text-slate-900 dark:text-white">
+                PostgreSQL
+              </span>
+              <span className="med-badge med-badge-success text-[9px]">JSONB</span>
+            </div>
+            <div className="text-[11px] text-emerald-600 font-semibold">
+              Connected & Healthy
+            </div>
+          </div>
+
+          <div className="med-card p-5 space-y-2">
+            <div className="flex items-center justify-between">
+              <span className="text-xs font-semibold text-slate-500">AI Model Mode</span>
+              <div className="p-2 rounded-xl bg-amber-50 dark:bg-amber-950/60 text-amber-600">
+                <Sparkles className="w-4 h-4" />
+              </div>
+            </div>
+            <div className="flex items-baseline space-x-2">
+              <span className="text-lg font-bold text-slate-900 dark:text-white">
+                Gemini 3.8
+              </span>
+            </div>
+            <div className="text-[11px] text-teal-600 font-semibold truncate">
+              Auto fallback engine
             </div>
           </div>
         </div>
       )}
 
-      {/* User Account Management Table */}
-      <div className="med-card p-6 space-y-4">
-        <div>
-          <h3 className="font-bold text-base text-slate-900 dark:text-white">Account Management</h3>
-          <p className="text-xs text-slate-500 dark:text-slate-400">
-            Activate or deactivate accounts, adjust role privileges, or verify account status. Safeguards prevent deactivating the last active administrator.
-          </p>
-        </div>
-
-        <div className="overflow-x-auto">
-          <table className="w-full text-left text-xs">
-            <thead>
-              <tr className="border-b border-slate-200/80 dark:border-slate-800 text-slate-400 uppercase tracking-wider text-[10px]">
-                <th className="pb-3 font-semibold">User</th>
-                <th className="pb-3 font-semibold">Email</th>
-                <th className="pb-3 font-semibold">Assigned Role</th>
-                <th className="pb-3 font-semibold">Status</th>
-                <th className="pb-3 font-semibold">Created</th>
-                <th className="pb-3 font-semibold text-right">Actions</th>
-              </tr>
-            </thead>
-            <tbody className="divide-y divide-slate-100 dark:divide-slate-800">
-              {usersList.map((u) => (
-                <tr key={u.id} className="hover:bg-slate-50/50 dark:hover:bg-slate-800/40">
-                  <td className="py-3 font-semibold text-slate-900 dark:text-white">
-                    {u.full_name}
-                  </td>
-                  <td className="py-3 text-slate-500 dark:text-slate-400">
-                    {u.email}
-                  </td>
-                  <td className="py-3">
-                    <select
-                      value={u.role}
-                      onChange={(e) => handleChangeRole(u, e.target.value)}
-                      className="med-input text-xs font-semibold py-1 px-2.5 capitalize"
-                    >
-                      <option value="patient">Patient</option>
-                      <option value="clinician">Clinician</option>
-                      <option value="administrator">Administrator</option>
-                    </select>
-                  </td>
-                  <td className="py-3">
-                    <span
-                      className={`med-badge uppercase tracking-wider ${
-                        u.is_active
-                          ? 'med-badge-success'
-                          : 'med-badge-error'
-                      }`}
-                    >
-                      {u.is_active ? 'Active' : 'Inactive'}
-                    </span>
-                  </td>
-                  <td className="py-3 text-slate-500 dark:text-slate-400">
-                    {new Date(u.created_at).toLocaleDateString()}
-                  </td>
-                  <td className="py-3 text-right">
-                    <button
-                      onClick={() => handleToggleUserStatus(u)}
-                      className={u.is_active ? 'med-btn-danger' : 'med-btn-primary'}
-                    >
-                      {u.is_active ? 'Deactivate' : 'Activate'}
-                    </button>
-                  </td>
-                </tr>
-              ))}
-            </tbody>
-          </table>
+      {/* Administration Dedicated Workspaces Grid */}
+      <div className="space-y-3">
+        <h3 className="text-sm font-bold uppercase tracking-wider text-slate-500 dark:text-slate-400">
+          Administrative Modules
+        </h3>
+        <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-4">
+          {[
+            {
+              to: '/admin/users',
+              title: 'User Management',
+              desc: 'Activate/deactivate accounts & adjust RBAC roles',
+              icon: Users,
+              badge: `${stats?.users.total || 0} Accounts`,
+            },
+            {
+              to: '/admin/clinicians',
+              title: 'Clinician Directory',
+              desc: 'Manage licensed physician nodes and credentials',
+              icon: UserCheck,
+              badge: `${stats?.users.clinicians || 0} Clinicians`,
+            },
+            {
+              to: '/admin/patients',
+              title: 'Patient Accounts',
+              desc: 'Patient identity administration with privacy isolation',
+              icon: ShieldCheck,
+              badge: `${stats?.users.patients || 0} Patients`,
+            },
+            {
+              to: '/admin/processing',
+              title: 'Ingestion Pipeline',
+              desc: 'Monitor OCR, AI extraction, and deduplication jobs',
+              icon: FileText,
+              badge: `${stats?.documents.total_processed || 0} Records`,
+            },
+            {
+              to: '/admin/audit',
+              title: 'Security Audit Logs',
+              desc: 'Searchable tamper-resistant access and change log',
+              icon: Activity,
+              badge: 'Security Feed',
+            },
+            {
+              to: '/admin/config',
+              title: 'System Configuration',
+              desc: 'Runtime file limits, formats, and timeout limits',
+              icon: Settings,
+              badge: 'Runtime Limits',
+            },
+            {
+              to: '/admin/health',
+              title: 'Service Health',
+              desc: 'Real-time database latency & storage write probes',
+              icon: Server,
+              badge: 'Live Probes',
+            },
+          ].map((item) => {
+            const Icon = item.icon;
+            return (
+              <Link
+                key={item.to}
+                to={item.to}
+                className="p-5 med-card med-card-hover flex flex-col justify-between space-y-3 group"
+              >
+                <div className="flex items-start justify-between">
+                  <div className="p-2.5 rounded-xl bg-teal-50 dark:bg-teal-950/60 text-teal-700 dark:text-teal-300 group-hover:scale-105 transition-transform">
+                    <Icon className="w-5 h-5" />
+                  </div>
+                  <span className="med-badge med-badge-teal text-[10px]">{item.badge}</span>
+                </div>
+                <div>
+                  <h4 className="font-bold text-sm text-slate-900 dark:text-white group-hover:text-teal-600 transition-colors flex items-center justify-between">
+                    <span>{item.title}</span>
+                    <ChevronRight className="w-4 h-4 text-slate-300 group-hover:text-teal-600 group-hover:translate-x-0.5 transition-all" />
+                  </h4>
+                  <p className="text-xs text-slate-500 dark:text-slate-400 mt-1 leading-snug">
+                    {item.desc}
+                  </p>
+                </div>
+              </Link>
+            );
+          })}
         </div>
       </div>
 
-      {/* Security Audit Log Feed */}
+      {/* Recent Security Audit Events */}
       <div className="med-card p-6 space-y-4">
-        <div>
-          <h3 className="font-bold text-base text-slate-900 dark:text-white">Security & Access Audit Trail</h3>
-          <p className="text-xs text-slate-500 dark:text-slate-400">
-            Immutable log of logins, sharing grants, revocations, and administrative events.
-          </p>
+        <div className="flex items-center justify-between pb-3 border-b border-slate-100 dark:border-slate-800">
+          <div>
+            <h3 className="font-bold text-base text-slate-900 dark:text-white">
+              Recent System Activity Stream
+            </h3>
+            <p className="text-xs text-slate-500">
+              Real-time audit log of security and administrative operations across the platform.
+            </p>
+          </div>
+          <Link
+            to="/admin/audit"
+            className="med-btn-secondary text-xs flex items-center space-x-1"
+          >
+            <span>Full Audit Trail</span>
+            <ArrowRight className="w-3.5 h-3.5" />
+          </Link>
         </div>
 
         <div className="divide-y divide-slate-100 dark:divide-slate-800">
           {auditLogs.map((log) => (
-            <div key={log.id} className="py-3 flex items-center justify-between text-xs gap-3">
+            <div key={log.id} className="py-3 flex items-center justify-between text-xs">
               <div className="flex items-center space-x-3">
-                <div className={`p-1.5 rounded-lg shrink-0 ${
-                  log.outcome === 'success'
-                    ? 'bg-teal-50 dark:bg-teal-950 text-teal-700 dark:text-teal-400'
-                    : 'bg-rose-50 dark:bg-rose-950 text-rose-700 dark:text-rose-400'
-                }`}>
-                  <Activity className="w-3.5 h-3.5" />
-                </div>
+                <span className="med-badge med-badge-teal text-[10px] font-mono uppercase">
+                  {log.action.replace(/_/g, ' ')}
+                </span>
                 <div>
-                  <div className="flex items-center space-x-2">
-                    <span className="font-bold font-mono text-slate-900 dark:text-white">
-                      {log.action}
-                    </span>
-                    <span className="text-slate-400">•</span>
-                    <span className="text-[11px] text-slate-500">{log.actor_name}</span>
-                  </div>
-                  <p className="text-[11px] text-slate-400 mt-0.5">
-                    Resource: {log.resource_type} {log.resource_id ? `(#${log.resource_id})` : ''}
-                  </p>
+                  <span className="font-bold text-slate-800 dark:text-slate-200">
+                    {log.actor_name}
+                  </span>
+                  <span className="text-slate-400 ml-1.5">
+                    accessed {log.resource_type} {log.resource_id ? `#${log.resource_id}` : ''}
+                  </span>
                 </div>
               </div>
-
-              <div className="text-right shrink-0">
-                <span className={`med-badge uppercase ${
-                  log.outcome === 'success'
-                    ? 'med-badge-success'
-                    : 'med-badge-error'
-                }`}>
+              <div className="flex items-center space-x-3">
+                <span className="med-badge med-badge-success text-[9px] uppercase">
                   {log.outcome}
                 </span>
-                <p className="text-[10px] text-slate-400 mt-1">
+                <span className="text-slate-400 text-[11px]">
                   {new Date(log.created_at).toLocaleTimeString()}
-                </p>
+                </span>
               </div>
             </div>
           ))}
+          {auditLogs.length === 0 && !loading && (
+            <div className="p-6 text-center text-xs text-slate-400">
+              No audit logs recorded yet.
+            </div>
+          )}
         </div>
       </div>
     </div>

@@ -10,6 +10,13 @@ import {
   LabTrendSeries,
   AdminStats,
   AuditEventItem,
+  RelationshipGraphResponse,
+  ClinicianDocumentItem,
+  ClinicianConsentItem,
+  ClinicianHandoverItem,
+  AdminDocumentItem,
+  AdminHealthDetailed,
+  AdminConfig,
 } from '../types';
 
 let cachedCsrfToken: string | null = null;
@@ -124,6 +131,11 @@ export const api = {
     return request<ExtractedFact[]>(`/facts${qs}`);
   },
 
+  getRelationshipGraph: (patientId?: number) => {
+    const qs = patientId ? `?patient_id=${patientId}` : '';
+    return request<RelationshipGraphResponse>(`/facts/graph${qs}`);
+  },
+
   updateFact: (factId: number, data: Partial<ExtractedFact>) =>
     request<ExtractedFact>(`/facts/${factId}`, {
       method: 'PATCH',
@@ -162,6 +174,16 @@ export const api = {
   getPatientLabTrends: (patientId: number) => request<LabTrendSeries[]>(`/clinician/patients/${patientId}/labs`),
   getPatientDiscrepancies: (patientId: number) =>
     request<Discrepancy[]>(`/clinician/patients/${patientId}/discrepancies`),
+  getAllClinicianDiscrepancies: () =>
+    request<Discrepancy[]>('/clinician/all-discrepancies'),
+  getClinicianSharedDocuments: () =>
+    request<ClinicianDocumentItem[]>('/clinician/documents'),
+  getClinicianConsents: () =>
+    request<ClinicianConsentItem[]>('/clinician/consents'),
+  getClinicianActivity: (limit = 50) =>
+    request<AuditEventItem[]>(`/clinician/activity?limit=${limit}`),
+  getClinicianHandovers: () =>
+    request<ClinicianHandoverItem[]>('/clinician/handovers'),
   reviewDiscrepancy: (discrepancyId: number, reviewStatus: string, reviewNote?: string) =>
     request<Discrepancy>(`/clinician/discrepancies/${discrepancyId}/review`, {
       method: 'POST',
@@ -183,4 +205,15 @@ export const api = {
       body: JSON.stringify(data),
     }),
   getAuditLogs: (limit = 50) => request<AuditEventItem[]>(`/admin/audit-logs?limit=${limit}`),
+  getAdminDocuments: (statusFilter?: string, limit = 50) => {
+    const qs = statusFilter ? `?status_filter=${statusFilter}&limit=${limit}` : `?limit=${limit}`;
+    return request<AdminDocumentItem[]>(`/admin/documents${qs}`);
+  },
+  reprocessAdminDocument: (documentId: number) =>
+    request<{ message: string; status: string }>(`/admin/documents/${documentId}/reprocess`, {
+      method: 'POST',
+    }),
+  getAdminHealthDetailed: () => request<AdminHealthDetailed>('/admin/health-detailed'),
+  getAdminConfig: () => request<AdminConfig>('/admin/config'),
 };
+

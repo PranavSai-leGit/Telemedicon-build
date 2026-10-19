@@ -174,3 +174,136 @@ export interface AuditEventItem {
   details?: Record<string, any>;
   created_at: string;
 }
+
+// Medical Relationship Map Interfaces
+export interface GraphNode {
+  id: string;
+  label: string;
+  type: string; // 'condition' | 'medication' | 'lab_result' | 'allergy' | 'document'
+  category: string;
+  date?: string;
+  details: Record<string, any>;
+  verification_status: string;
+  document_name?: string;
+  document_id?: number;
+  source_page?: number;
+  source_excerpt?: string;
+}
+
+export interface GraphEdge {
+  id: string;
+  source: string;
+  target: string;
+  label: string; // 'Prescribed for' | 'Monitored by' | 'Documented in' | 'Supersedes previous prescription' | 'Dosage mismatch'
+  relationship_type: string;
+  status: string;
+  explanation?: string;
+}
+
+export interface RelationshipGraphResponse {
+  patient_id: number;
+  patient_name: string;
+  nodes: GraphNode[];
+  edges: GraphEdge[];
+  node_counts: Record<string, number>;
+  edge_counts: Record<string, number>;
+}
+
+// Clinician Portal Expanded Interfaces
+export interface ClinicianDocumentItem {
+  id: number;
+  patient_id: number;
+  patient_name: string;
+  patient_email: string;
+  uploaded_filename: string;
+  document_type: string;
+  processing_status: string;
+  size_bytes: number;
+  mime_type: string;
+  sha256_hash: string;
+  document_date?: string;
+  event_date?: string;
+  uploaded_at: string;
+  facts_count: number;
+}
+
+export interface ClinicianConsentItem {
+  id: number;
+  patient_id: number;
+  patient_name: string;
+  patient_email: string;
+  status: 'active' | 'revoked' | 'expired';
+  document_count: number;
+  created_at: string;
+  expires_at?: string;
+  revoked_at?: string;
+}
+
+export interface ClinicianHandoverItem {
+  id: number;
+  patient_id: number;
+  patient_name: string;
+  patient_email: string;
+  generation_mode: string;
+  model_identifier: string;
+  created_at: string;
+  included_document_ids: number[];
+  executive_summary: string;
+  relevant_history_count: number;
+  medications_count: number;
+  discrepancies_count: number;
+}
+
+// Admin Portal Expanded Interfaces
+export interface AdminDocumentItem {
+  id: number;
+  patient_id: number;
+  patient_name: string;
+  patient_email: string;
+  uploaded_filename: string;
+  document_type: string;
+  mime_type: string;
+  size_bytes: number;
+  sha256_hash: string;
+  processing_status: string;
+  uploaded_at: string;
+  facts_count: number;
+}
+
+export interface AdminHealthDetailed {
+  status: string;
+  timestamp: string;
+  database: {
+    status: string;
+    type: string;
+    latency_ms: number | null;
+  };
+  storage: {
+    status: string;
+    path: string;
+    writable: boolean;
+    max_file_size_mb: number;
+  };
+  ai_engine: {
+    status: string;
+    configured_model: string;
+    mode: string;
+  };
+  version: string;
+}
+
+export interface AdminConfig {
+  app_name: string;
+  version: string;
+  environment: string;
+  debug: boolean;
+  max_file_size_mb: number;
+  allowed_file_types: string[];
+  session_expire_hours: number;
+  cors_origins: string[];
+  ai_mode: string;
+  ai_model: string;
+  ai_configured: boolean;
+  storage_directory: string;
+}
+

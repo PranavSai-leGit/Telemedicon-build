@@ -10,7 +10,11 @@ import {
   Stethoscope,
   ShieldCheck,
   Activity,
-  AlertTriangle
+  AlertTriangle,
+  Users,
+  FileText,
+  Settings,
+  Server
 } from 'lucide-react';
 import { useAuth } from '../contexts/AuthContext';
 
@@ -33,11 +37,24 @@ export const Sidebar: React.FC<SidebarProps> = ({ isOpen, onClose }) => {
   ];
 
   const clinicianNav = [
-    { to: '/clinician/dashboard', label: 'Clinical Dashboard', icon: Stethoscope },
+    { to: '/clinician/dashboard', label: 'Overview', icon: LayoutDashboard },
+    { to: '/clinician/patients', label: 'Patient Directory', icon: Users },
+    { to: '/clinician/documents', label: 'Shared Documents', icon: FileText },
+    { to: '/clinician/handovers', label: 'Clinical Handovers', icon: FileCheck2 },
+    { to: '/clinician/discrepancies', label: 'Discrepancy Review', icon: AlertTriangle },
+    { to: '/clinician/consents', label: 'Consent & Sharing', icon: Share2 },
+    { to: '/clinician/activity', label: 'Audit Activity', icon: Activity },
   ];
 
   const adminNav = [
-    { to: '/admin/dashboard', label: 'System Overview', icon: ShieldCheck },
+    { to: '/admin/dashboard', label: 'Overview', icon: LayoutDashboard },
+    { to: '/admin/users', label: 'User Management', icon: Users },
+    { to: '/admin/clinicians', label: 'Clinician Accounts', icon: Stethoscope },
+    { to: '/admin/patients', label: 'Patient Accounts', icon: ShieldCheck },
+    { to: '/admin/processing', label: 'Processing Monitor', icon: FileText },
+    { to: '/admin/audit', label: 'Security Audit Logs', icon: Activity },
+    { to: '/admin/config', label: 'System Configuration', icon: Settings },
+    { to: '/admin/health', label: 'Service Health', icon: Server },
   ];
 
   const navItems =

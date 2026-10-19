@@ -12,6 +12,7 @@ class Settings(BaseSettings):
     PROJECT_NAME: str = "MediTale"
     PROJECT_TAGLINE: str = "Your health history, connected and ready for every consultation."
     VERSION: str = "1.0.0"
+    APP_ENV: str = "development"
     DEBUG: bool = True
     SECRET_KEY: str = "meditale-super-secret-key-change-in-prod-1234567890abcdef"
     

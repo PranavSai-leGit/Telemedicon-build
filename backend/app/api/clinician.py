@@ -1,4 +1,4 @@
-from fastapi import APIRouter, Depends, HTTPException, Response, status
+from fastapi import APIRouter, Depends, HTTPException, Response, status, Query
 from fastapi.responses import StreamingResponse
 from sqlalchemy.orm import Session
 from datetime import datetime, timezone
@@ -11,17 +11,20 @@ from app.models.fact import ExtractedFact
 from app.models.sharing import SharingGrant, SharingGrantDocument
 from app.models.discrepancy import Discrepancy
 from app.models.summary import Summary
+from app.models.audit import AuditEvent
 from app.models.enums import UserRole, SharingStatus, DiscrepancyReviewStatus
 from app.schemas.sharing import ClinicianPatientItem
 from app.schemas.discrepancy import DiscrepancyResponse, DiscrepancyReviewRequest
 from app.schemas.fact import FactResponse
 from app.schemas.summary import SummaryResponse
+from app.schemas.document import DocumentResponse
 from app.security.rbac import require_clinician, get_authorized_document_ids_for_clinician
 from app.services.gemini_service import gemini_service
 from app.services.handover_pdf import generate_clinical_handover_pdf
 from app.services.audit import log_audit_event
 
 router = APIRouter(prefix="/clinician", tags=["Clinician Experience"])
+
 
 @router.get("/patients", response_model=List[ClinicianPatientItem])
 def get_shared_patients(
@@ -385,3 +388,227 @@ def download_handover_pdf(
         media_type="application/pdf",
         headers={"Content-Disposition": f'attachment; filename="{filename}"'}
     )
+
+@router.get("/documents")
+def get_all_shared_documents(
+    current_user: User = Depends(require_clinician),
+    db: Session = Depends(get_db)
+):
+    """
+    Retrieve all medical documents currently accessible by this clinician
+    across all active patient sharing grants.
+    """
+    now = datetime.now(timezone.utc)
+    grants = (
+        db.query(SharingGrant)
+        .filter(
+            SharingGrant.clinician_id == current_user.id,
+            SharingGrant.status == SharingStatus.ACTIVE.value,
+            SharingGrant.revoked_at.is_(None),
+            (SharingGrant.expires_at.is_(None) | (SharingGrant.expires_at > now))
+        )
+        .all()
+    )
+    grant_ids = [g.id for g in grants]
+    if not grant_ids:
+        return []
+
+    doc_links = (
+        db.query(SharingGrantDocument.document_id, SharingGrant.patient_id)
+        .join(SharingGrant, SharingGrant.id == SharingGrantDocument.sharing_grant_id)
+        .filter(SharingGrantDocument.sharing_grant_id.in_(grant_ids))
+        .all()
+    )
+
+    doc_patient_map = {dl[0]: dl[1] for dl in doc_links}
+    doc_ids = list(doc_patient_map.keys())
+    if not doc_ids:
+        return []
+
+    docs = (
+        db.query(Document, User.full_name, User.email)
+        .join(User, Document.patient_id == User.id)
+        .filter(Document.id.in_(doc_ids))
+        .order_by(Document.uploaded_at.desc())
+        .all()
+    )
+
+    results = []
+    for doc, pat_name, pat_email in docs:
+        facts_count = db.query(ExtractedFact).filter(ExtractedFact.document_id == doc.id).count()
+        results.append({
+            "id": doc.id,
+            "patient_id": doc.patient_id,
+            "patient_name": pat_name,
+            "patient_email": pat_email,
+            "uploaded_filename": doc.uploaded_filename,
+            "document_type": doc.document_type,
+            "processing_status": doc.processing_status,
+            "size_bytes": doc.size_bytes,
+            "mime_type": doc.mime_type,
+            "sha256_hash": doc.sha256_hash,
+            "document_date": str(doc.document_date) if doc.document_date else None,
+            "event_date": str(doc.event_date) if doc.event_date else None,
+            "uploaded_at": doc.uploaded_at,
+            "facts_count": facts_count
+        })
+    return results
+
+@router.get("/all-discrepancies", response_model=List[DiscrepancyResponse])
+def get_all_clinician_discrepancies(
+    current_user: User = Depends(require_clinician),
+    db: Session = Depends(get_db)
+):
+    """
+    Retrieve all detected clinical reconciliation discrepancies across all authorized patients.
+    """
+    now = datetime.now(timezone.utc)
+    active_grants = (
+        db.query(SharingGrant)
+        .filter(
+            SharingGrant.clinician_id == current_user.id,
+            SharingGrant.status == SharingStatus.ACTIVE.value,
+            SharingGrant.revoked_at.is_(None),
+            (SharingGrant.expires_at.is_(None) | (SharingGrant.expires_at > now))
+        )
+        .all()
+    )
+    patient_ids = [g.patient_id for g in active_grants]
+    if not patient_ids:
+        return []
+
+    discs = (
+        db.query(Discrepancy)
+        .filter(Discrepancy.patient_id.in_(patient_ids))
+        .order_by(Discrepancy.created_at.desc())
+        .all()
+    )
+
+    results = []
+    for d in discs:
+        patient = db.query(User).filter(User.id == d.patient_id).first()
+        allowed_doc_ids = get_authorized_document_ids_for_clinician(current_user.id, d.patient_id, db)
+        f1 = db.query(ExtractedFact).filter(ExtractedFact.id == d.fact_id_1).first() if d.fact_id_1 else None
+        f2 = db.query(ExtractedFact).filter(ExtractedFact.id == d.fact_id_2).first() if d.fact_id_2 else None
+
+        if f1 and f1.document_id not in allowed_doc_ids and f2 and f2.document_id not in allowed_doc_ids:
+            continue
+
+        reviewer = db.query(User).filter(User.id == d.reviewed_by).first() if d.reviewed_by else None
+        d_resp = DiscrepancyResponse.model_validate(d)
+        d_resp.reviewer_name = reviewer.full_name if reviewer else None
+        if f1:
+            doc1 = db.query(Document).filter(Document.id == f1.document_id).first()
+            d_resp.fact_1 = FactResponse.model_validate(f1)
+            if doc1:
+                d_resp.fact_1.document_name = doc1.uploaded_filename
+                d_resp.fact_1.document_type = doc1.document_type
+        if f2:
+            doc2 = db.query(Document).filter(Document.id == f2.document_id).first()
+            d_resp.fact_2 = FactResponse.model_validate(f2)
+            if doc2:
+                d_resp.fact_2.document_name = doc2.uploaded_filename
+                d_resp.fact_2.document_type = doc2.document_type
+
+        results.append(d_resp)
+
+    return results
+
+@router.get("/consents")
+def get_clinician_consents(
+    current_user: User = Depends(require_clinician),
+    db: Session = Depends(get_db)
+):
+    """
+    Retrieve all sharing grants issued to this clinician with patient information and document scope.
+    """
+    grants = (
+        db.query(SharingGrant, User.full_name, User.email)
+        .join(User, SharingGrant.patient_id == User.id)
+        .filter(SharingGrant.clinician_id == current_user.id)
+        .order_by(SharingGrant.created_at.desc())
+        .all()
+    )
+
+    results = []
+    now = datetime.now(timezone.utc)
+    for g, pat_name, pat_email in grants:
+        doc_count = db.query(SharingGrantDocument).filter(SharingGrantDocument.sharing_grant_id == g.id).count()
+        is_active = (g.status == SharingStatus.ACTIVE.value and not g.revoked_at and (not g.expires_at or g.expires_at > now))
+        results.append({
+            "id": g.id,
+            "patient_id": g.patient_id,
+            "patient_name": pat_name,
+            "patient_email": pat_email,
+            "status": "active" if is_active else ("revoked" if g.revoked_at else "expired"),
+            "document_count": doc_count,
+            "created_at": g.created_at,
+            "expires_at": g.expires_at,
+            "revoked_at": g.revoked_at
+        })
+    return results
+
+@router.get("/activity")
+def get_clinician_activity(
+    limit: int = Query(50, le=200),
+    current_user: User = Depends(require_clinician),
+    db: Session = Depends(get_db)
+):
+    """
+    Audit log trail of actions performed by this clinician (records accessed, handovers generated, etc.).
+    """
+    logs = (
+        db.query(AuditEvent)
+        .filter(AuditEvent.actor_user_id == current_user.id)
+        .order_by(AuditEvent.created_at.desc())
+        .limit(limit)
+        .all()
+    )
+    return [
+        {
+            "id": log.id,
+            "action": log.action,
+            "resource_type": log.resource_type,
+            "resource_id": log.resource_id,
+            "outcome": log.outcome,
+            "details": log.details,
+            "created_at": log.created_at
+        }
+        for log in logs
+    ]
+
+@router.get("/handovers")
+def get_all_clinical_handovers(
+    current_user: User = Depends(require_clinician),
+    db: Session = Depends(get_db)
+):
+    """
+    List all clinical handover briefs generated by this clinician across authorized patients.
+    """
+    summaries = (
+        db.query(Summary, User.full_name, User.email)
+        .join(User, Summary.patient_id == User.id)
+        .filter(Summary.generated_by == current_user.id)
+        .order_by(Summary.created_at.desc())
+        .all()
+    )
+
+    results = []
+    for s, pat_name, pat_email in summaries:
+        payload = s.summary_payload or {}
+        results.append({
+            "id": s.id,
+            "patient_id": s.patient_id,
+            "patient_name": pat_name,
+            "patient_email": pat_email,
+            "generation_mode": s.generation_mode,
+            "model_identifier": s.model_identifier,
+            "created_at": s.created_at,
+            "included_document_ids": s.included_document_ids,
+            "executive_summary": payload.get("executive_summary", ""),
+            "relevant_history_count": len(payload.get("relevant_history", [])),
+            "medications_count": len(payload.get("medications", [])),
+            "discrepancies_count": len(payload.get("potential_discrepancies", []))
+        })
+    return results
+

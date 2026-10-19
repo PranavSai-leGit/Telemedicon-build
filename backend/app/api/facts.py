@@ -9,12 +9,61 @@ from app.models.fact import ExtractedFact
 from app.models.document import Document
 from app.models.sharing import SharingGrant, SharingGrantDocument
 from app.models.enums import UserRole, ExtractionStatus, VerificationStatus, SharingStatus
-from app.schemas.fact import FactResponse, FactUpdate
+from app.schemas.fact import FactResponse, FactUpdate, RelationshipGraphResponse
 from app.security.rbac import get_current_user, require_clinician_or_patient
 from app.services.reconciliation import detect_medication_discrepancies
+from app.services.graph_service import generate_patient_relationship_graph
 from app.services.audit import log_audit_event
 
 router = APIRouter(prefix="/facts", tags=["Extracted Facts & Timeline"])
+
+@router.get("/graph", response_model=RelationshipGraphResponse)
+def get_relationship_graph(
+    patient_id: Optional[int] = Query(None),
+    current_user: User = Depends(require_clinician_or_patient),
+    db: Session = Depends(get_db)
+):
+    """
+    Generate an interactive, source-grounded Medical Relationship Map connecting
+    conditions, medications, laboratory results, and source documents.
+    """
+    target_patient_id = current_user.id
+    allowed_doc_ids = None
+
+    if current_user.role == UserRole.CLINICIAN.value:
+        if not patient_id:
+            raise HTTPException(
+                status_code=status.HTTP_400_BAD_REQUEST,
+                detail="Clinician must specify patient_id."
+            )
+        target_patient_id = patient_id
+        now = datetime.now(timezone.utc)
+        authorized_doc_ids = (
+            db.query(SharingGrantDocument.document_id)
+            .join(SharingGrant, SharingGrant.id == SharingGrantDocument.sharing_grant_id)
+            .filter(
+                SharingGrant.patient_id == patient_id,
+                SharingGrant.clinician_id == current_user.id,
+                SharingGrant.status == SharingStatus.ACTIVE.value,
+                SharingGrant.revoked_at.is_(None),
+                (SharingGrant.expires_at.is_(None) | (SharingGrant.expires_at > now))
+            )
+            .all()
+        )
+        allowed_doc_ids = {d[0] for d in authorized_doc_ids}
+        if not allowed_doc_ids:
+            return RelationshipGraphResponse(
+                patient_id=target_patient_id,
+                patient_name="Unknown",
+                nodes=[],
+                edges=[]
+            )
+
+    return generate_patient_relationship_graph(
+        patient_id=target_patient_id,
+        db=db,
+        allowed_document_ids=allowed_doc_ids
+    )
 
 @router.get("", response_model=List[FactResponse])
 def get_timeline_facts(

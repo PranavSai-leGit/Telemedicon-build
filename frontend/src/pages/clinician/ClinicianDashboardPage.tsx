@@ -10,7 +10,8 @@ import {
   Calendar,
   ChevronRight,
   RefreshCw,
-  Search
+  Search,
+  FileCheck2
 } from 'lucide-react';
 import { api } from '../../services/api';
 import { ClinicianPatient } from '../../types';
@@ -111,6 +112,37 @@ export const ClinicianDashboardPage: React.FC = () => {
             <span className="text-xs text-amber-600 dark:text-amber-400 font-medium">review required</span>
           </div>
         </div>
+      </div>
+
+      {/* Clinical Workspace Quick Action Grid */}
+      <div className="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-6 gap-3">
+        {[
+          { to: '/clinician/patients', label: 'Patient Directory', icon: Users, desc: 'Find authorized patients' },
+          { to: '/clinician/documents', label: 'Document Vault', icon: FileText, desc: 'Original shared records' },
+          { to: '/clinician/handovers', label: 'Clinical Handovers', icon: FileCheck2, desc: 'PDF handover briefs' },
+          { to: '/clinician/discrepancies', label: 'Discrepancies', icon: AlertTriangle, desc: 'Reconciliation items' },
+          { to: '/clinician/consents', label: 'Consent Scopes', icon: ShieldCheck, desc: 'Active grant limits' },
+          { to: '/clinician/activity', label: 'Audit Activity', icon: Calendar, desc: 'Access log trail' },
+        ].map((action) => {
+          const Icon = action.icon;
+          return (
+            <Link
+              key={action.to}
+              to={action.to}
+              className="p-3.5 med-card med-card-hover flex flex-col justify-between space-y-2 group"
+            >
+              <div className="p-2 rounded-xl bg-teal-50 dark:bg-teal-950/60 text-teal-700 dark:text-teal-300 w-fit group-hover:scale-105 transition-transform">
+                <Icon className="w-4 h-4" />
+              </div>
+              <div>
+                <h4 className="text-xs font-bold text-slate-900 dark:text-white group-hover:text-teal-600 transition-colors">
+                  {action.label}
+                </h4>
+                <p className="text-[10px] text-slate-400 mt-0.5">{action.desc}</p>
+              </div>
+            </Link>
+          );
+        })}
       </div>
 
       {/* Patients Table */}

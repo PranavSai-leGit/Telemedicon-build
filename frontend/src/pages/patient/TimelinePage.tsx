@@ -10,18 +10,26 @@ import {
   Edit2,
   Search,
   Sparkles,
-  ShieldCheck
+  ShieldCheck,
+  Share2,
+  Network
 } from 'lucide-react';
 import { api } from '../../services/api';
-import { ExtractedFact } from '../../types';
+import { ExtractedFact, RelationshipGraphResponse } from '../../types';
 import { EvidenceModal } from '../../components/EvidenceModal';
+import { MedicalRelationshipMap } from '../../components/MedicalRelationshipMap';
 
 export const TimelinePage: React.FC = () => {
+  const [viewMode, setViewMode] = useState<'timeline' | 'map'>('timeline');
   const [facts, setFacts] = useState<ExtractedFact[]>([]);
   const [loading, setLoading] = useState(true);
   const [filterType, setFilterType] = useState<string>('all');
   const [searchQuery, setSearchQuery] = useState('');
   const [evidenceData, setEvidenceData] = useState<any | null>(null);
+
+  // Graph state
+  const [graphData, setGraphData] = useState<RelationshipGraphResponse | null>(null);
+  const [graphLoading, setGraphLoading] = useState(false);
 
   // Edit / Correct Fact state
   const [editingFact, setEditingFact] = useState<ExtractedFact | null>(null);
@@ -39,9 +47,22 @@ export const TimelinePage: React.FC = () => {
     }
   };
 
+  const fetchGraph = async () => {
+    setGraphLoading(true);
+    try {
+      const res = await api.getRelationshipGraph();
+      setGraphData(res);
+    } catch (err) {
+      console.error('Failed to load relationship graph:', err);
+    } finally {
+      setGraphLoading(false);
+    }
+  };
+
   useEffect(() => {
     fetchFacts();
   }, [filterType]);
+
 
   const handleInspect = async (factId: number) => {
     try {
@@ -107,16 +128,55 @@ export const TimelinePage: React.FC = () => {
   };
 
   return (
-    <div className="space-y-8 pb-12">
-      {/* Header */}
-      <div>
-        <h1 className="text-2xl font-bold tracking-tight text-slate-900 dark:text-white">
-          Chronological Health Timeline
-        </h1>
-        <p className="text-xs sm:text-sm text-slate-500 dark:text-slate-400 mt-1">
-          Unified clinical events ordered by clinical event date rather than upload date. Every fact is verifiable with original source excerpts.
-        </p>
+    <div className="space-y-6 pb-12">
+      {/* Header and View Switcher */}
+      <div className="flex flex-col md:flex-row md:items-center justify-between gap-4">
+        <div>
+          <h1 className="text-2xl font-bold tracking-tight text-slate-900 dark:text-white">
+            {viewMode === 'timeline' ? 'Chronological Health Timeline' : 'Medical Relationship Map'}
+          </h1>
+          <p className="text-xs sm:text-sm text-slate-500 dark:text-slate-400 mt-1">
+            {viewMode === 'timeline'
+              ? 'Unified clinical events ordered by clinical event date rather than upload date. Every fact is verifiable with original source excerpts.'
+              : 'Interactive clinical graph connecting diagnoses, medications, laboratory results, and source documents.'}
+          </p>
+        </div>
+
+        {/* View Switcher Controls */}
+        <div className="flex items-center p-1 rounded-xl bg-slate-100 dark:bg-slate-800 border border-slate-200/80 dark:border-slate-700 shrink-0 self-start md:self-auto">
+          <button
+            onClick={() => setViewMode('timeline')}
+            className={`px-3.5 py-1.5 rounded-lg text-xs font-bold transition-all flex items-center space-x-1.5 ${
+              viewMode === 'timeline'
+                ? 'bg-white dark:bg-slate-900 text-teal-700 dark:text-teal-300 shadow-xs'
+                : 'text-slate-600 dark:text-slate-400 hover:text-slate-900 dark:hover:text-slate-200'
+            }`}
+          >
+            <Clock className="w-3.5 h-3.5 text-teal-600" />
+            <span>Chronological Timeline</span>
+          </button>
+          <button
+            onClick={() => {
+              setViewMode('map');
+              if (!graphData) fetchGraph();
+            }}
+            className={`px-3.5 py-1.5 rounded-lg text-xs font-bold transition-all flex items-center space-x-1.5 ${
+              viewMode === 'map'
+                ? 'bg-white dark:bg-slate-900 text-teal-700 dark:text-teal-300 shadow-xs'
+                : 'text-slate-600 dark:text-slate-400 hover:text-slate-900 dark:hover:text-slate-200'
+            }`}
+          >
+            <Network className="w-3.5 h-3.5 text-teal-600" />
+            <span>Medical Relationship Map</span>
+          </button>
+        </div>
       </div>
+
+      {viewMode === 'map' ? (
+        <MedicalRelationshipMap graphData={graphData} loading={graphLoading} />
+      ) : (
+        <>
+
 
       {/* Filter and Search Bar */}
       <div className="p-4 rounded-2xl bg-white dark:bg-slate-900 border border-slate-200/80 dark:border-slate-800 shadow-xs flex flex-col sm:flex-row items-center justify-between gap-3">
@@ -239,6 +299,8 @@ export const TimelinePage: React.FC = () => {
           </div>
         )}
       </div>
+      </>
+      )}
 
       {/* Patient Correction Modal */}
       {editingFact && (

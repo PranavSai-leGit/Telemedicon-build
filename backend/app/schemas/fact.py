@@ -36,3 +36,37 @@ class FactResponse(FactBase):
 
     class Config:
         from_attributes = True
+
+
+class GraphNode(BaseModel):
+    id: str
+    label: str
+    type: str  # condition, medication, lab_result, allergy, document
+    category: str
+    date: Optional[str] = None
+    details: Dict[str, Any] = {}
+    verification_status: str = "unverified"
+    document_name: Optional[str] = None
+    document_id: Optional[int] = None
+    source_page: Optional[int] = None
+    source_excerpt: Optional[str] = None
+
+
+class GraphEdge(BaseModel):
+    id: str
+    source: str
+    target: str
+    label: str  # "Prescribed for", "Monitored by", "Documented in", "Supersedes previous prescription", "Dosage mismatch"
+    relationship_type: str
+    status: str = "extracted"  # verified, patient_confirmed, extracted, flagged_discrepancy
+    explanation: Optional[str] = None
+
+
+class RelationshipGraphResponse(BaseModel):
+    patient_id: int
+    patient_name: str
+    nodes: list[GraphNode] = []
+    edges: list[GraphEdge] = []
+    node_counts: Dict[str, int] = {}
+    edge_counts: Dict[str, int] = {}
+
