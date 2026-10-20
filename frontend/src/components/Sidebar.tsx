@@ -14,7 +14,9 @@ import {
   Users,
   FileText,
   Settings,
-  Server
+  Server,
+  ShieldAlert,
+  Cpu
 } from 'lucide-react';
 import { useAuth } from '../contexts/AuthContext';
 
@@ -39,6 +41,7 @@ export const Sidebar: React.FC<SidebarProps> = ({ isOpen, onClose }) => {
   const clinicianNav = [
     { to: '/clinician/dashboard', label: 'Overview', icon: LayoutDashboard },
     { to: '/clinician/patients', label: 'Patient Directory', icon: Users },
+    { to: '/clinician/verification', label: 'Verification Queue', icon: ShieldAlert },
     { to: '/clinician/documents', label: 'Shared Documents', icon: FileText },
     { to: '/clinician/handovers', label: 'Clinical Handovers', icon: FileCheck2 },
     { to: '/clinician/discrepancies', label: 'Discrepancy Review', icon: AlertTriangle },
@@ -51,6 +54,7 @@ export const Sidebar: React.FC<SidebarProps> = ({ isOpen, onClose }) => {
     { to: '/admin/users', label: 'User Management', icon: Users },
     { to: '/admin/clinicians', label: 'Clinician Accounts', icon: Stethoscope },
     { to: '/admin/patients', label: 'Patient Accounts', icon: ShieldCheck },
+    { to: '/admin/ai-monitoring', label: 'AI Operations & Telemetry', icon: Cpu },
     { to: '/admin/processing', label: 'Processing Monitor', icon: FileText },
     { to: '/admin/audit', label: 'Security Audit Logs', icon: Activity },
     { to: '/admin/config', label: 'System Configuration', icon: Settings },
@@ -75,11 +79,12 @@ export const Sidebar: React.FC<SidebarProps> = ({ isOpen, onClose }) => {
       )}
 
       <aside
-        className={`fixed top-16 bottom-0 left-0 z-40 w-64 bg-white dark:bg-slate-900 border-r border-slate-200/80 dark:border-slate-800/80 transition-transform duration-200 ease-in-out lg:translate-x-0 ${isOpen ? 'translate-x-0' : '-translate-x-full'
-          } flex flex-col justify-between`}
+        className={`fixed top-16 bottom-0 left-0 z-40 w-64 bg-white dark:bg-[#0E1726] border-r border-[#D9E3EB] dark:border-[#2A3A4D] transition-transform duration-200 ease-in-out lg:translate-x-0 ${
+          isOpen ? 'translate-x-0' : '-translate-x-full'
+        } flex flex-col justify-between`}
       >
         <div className="p-4 space-y-1">
-          <div className="px-3 py-2 text-[11px] font-bold uppercase tracking-wider text-slate-400 dark:text-slate-500">
+          <div className="px-3 py-2 text-[11px] font-bold uppercase tracking-wider text-[#536777] dark:text-[#91A3B5]">
             {user.role} workspace
           </div>
 
@@ -92,9 +97,10 @@ export const Sidebar: React.FC<SidebarProps> = ({ isOpen, onClose }) => {
                   to={item.to}
                   onClick={onClose}
                   className={({ isActive }) =>
-                    `flex items-center space-x-3 px-3.5 py-2.5 rounded-xl text-xs font-semibold transition-all ${isActive
-                      ? 'bg-teal-50 dark:bg-teal-950/60 text-teal-700 dark:text-teal-300 font-bold border border-teal-200/60 dark:border-teal-800/50 shadow-xs'
-                      : 'text-slate-600 dark:text-slate-400 hover:bg-slate-100 dark:hover:bg-slate-800/60 hover:text-slate-900 dark:hover:text-slate-200'
+                    `flex items-center space-x-3 px-3 py-2 rounded-lg text-xs font-medium transition-all ${
+                      isActive
+                        ? 'bg-[#E4F3F0] dark:bg-[#123831] text-[#0F766E] dark:text-[#5EEAD4] font-semibold border border-[#0F766E]/25 dark:border-[#5EEAD4]/30'
+                        : 'text-[#536777] dark:text-[#B2C0CE] hover:bg-[#EDF3F7] dark:hover:bg-[#162437] hover:text-[#172B3A] dark:hover:text-[#E7EEF5]'
                     }`
                   }
                 >
@@ -106,14 +112,14 @@ export const Sidebar: React.FC<SidebarProps> = ({ isOpen, onClose }) => {
           </nav>
         </div>
 
-        {/* Security & Disclaimer Notice */}
-        <div className="p-4 m-3 rounded-xl bg-slate-50 dark:bg-slate-800/40 border border-slate-200/60 dark:border-slate-700/40 text-[11px] space-y-1">
-          <div className="flex items-center space-x-1.5 font-semibold text-slate-700 dark:text-slate-300">
-            <Activity className="w-3.5 h-3.5 text-teal-600 dark:text-teal-400" />
-            <span>Digital Health Interop</span>
+        {/* Brand Principle & Provenance Note */}
+        <div className="p-3.5 m-3 rounded-lg bg-[#EDF3F7] dark:bg-[#162437] border border-[#D9E3EB] dark:border-[#2A3A4D] text-[11px] space-y-1">
+          <div className="flex items-center space-x-1.5 font-semibold text-[#172B3A] dark:text-[#E7EEF5]">
+            <ShieldCheck className="w-3.5 h-3.5 text-[#0F766E] dark:text-[#5EEAD4]" />
+            <span>MediTale Provenance</span>
           </div>
-          <p className="text-slate-500 dark:text-slate-400 leading-snug">
-            All records displayed are synthetic demo data for clinical handover testing.
+          <p className="text-[#536777] dark:text-[#91A3B5] leading-snug">
+            Medical history, connected to its evidence. Verifiable audit trails for clinical safety.
           </p>
         </div>
       </aside>

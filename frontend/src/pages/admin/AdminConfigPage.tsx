@@ -14,10 +14,12 @@ import {
 } from 'lucide-react';
 import { api } from '../../services/api';
 import { AdminConfig } from '../../types';
+import { GeminiConfigModal } from '../../components/GeminiConfigModal';
 
 export const AdminConfigPage: React.FC = () => {
   const [config, setConfig] = useState<AdminConfig | null>(null);
   const [loading, setLoading] = useState(true);
+  const [isConfigModalOpen, setIsConfigModalOpen] = useState(false);
 
   const fetchConfig = async () => {
     try {
@@ -171,11 +173,19 @@ export const AdminConfigPage: React.FC = () => {
                   <span className="font-semibold text-slate-500">Active AI Model:</span>
                   <span className="font-mono text-slate-900 dark:text-white">{config.ai_model}</span>
                 </div>
-                <div className="flex justify-between py-1.5 border-b border-slate-100 dark:border-slate-800">
+                <div className="flex justify-between items-center py-1.5 border-b border-slate-100 dark:border-slate-800">
                   <span className="font-semibold text-slate-500">Live Gemini API Key Status:</span>
-                  <span className={`med-badge text-[10px] ${config.ai_configured ? 'med-badge-success' : 'med-badge-warning'}`}>
-                    {config.ai_configured ? 'Configured & Active' : 'Fallback Demo Intelligence'}
-                  </span>
+                  <div className="flex items-center space-x-2">
+                    <span className={`med-badge text-[10px] ${config.ai_configured ? 'med-badge-success' : 'med-badge-warning'}`}>
+                      {config.ai_configured ? 'Configured & Active' : 'Fallback Demo Intelligence'}
+                    </span>
+                    <button
+                      onClick={() => setIsConfigModalOpen(true)}
+                      className="px-2.5 py-0.5 bg-teal-600 hover:bg-teal-700 text-white rounded-md text-[10px] font-semibold transition-colors"
+                    >
+                      {config.ai_configured ? 'Change Key' : 'Configure Key'}
+                    </button>
+                  </div>
                 </div>
                 <div className="flex justify-between py-1.5">
                   <span className="font-semibold text-slate-500">Secret Redaction:</span>
@@ -186,6 +196,13 @@ export const AdminConfigPage: React.FC = () => {
               </div>
             </div>
           </div>
+
+          <GeminiConfigModal
+            isOpen={isConfigModalOpen}
+            onClose={() => setIsConfigModalOpen(false)}
+            onConfigSaved={fetchConfig}
+            currentModel={config.ai_model}
+          />
 
           {/* Information Container: Redaction Guarantee & Hardening Standard */}
           <div className="med-card med-card-hover p-5 space-y-3">

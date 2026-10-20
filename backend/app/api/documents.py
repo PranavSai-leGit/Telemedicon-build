@@ -13,18 +13,73 @@ from app.models.document import Document
 from app.models.fact import ExtractedFact
 from app.models.sharing import SharingGrant, SharingGrantDocument
 from app.models.enums import UserRole, DocumentType, ProcessingStatus, FactType, ExtractionStatus, VerificationStatus, SharingStatus
-from app.schemas.document import DocumentResponse, DocumentDetailResponse, ManualStructuredEntry
-from app.security.rbac import get_current_user, check_document_access, require_patient, require_clinician_or_patient
+from app.schemas.document import (
+    DocumentResponse,
+    DocumentDetailResponse,
+    ManualStructuredEntry,
+    AIConfigRequest,
+    AIStatusResponse
+)
+from app.security.rbac import get_current_user, check_document_access, require_patient, require_clinician_or_patient, require_admin
 from app.services.document_parser import calculate_sha256, extract_document_content
 from app.services.gemini_service import gemini_service
 from app.services.reconciliation import detect_medication_discrepancies
 from app.services.audit import log_audit_event
-from app.core.config import settings
+from app.core.config import settings, BASE_DIR
+from pathlib import Path
+
+from app.services.pipeline_service import DocumentProcessingPipeline
+from app.security.rate_limiter import check_upload_rate_limit
 
 router = APIRouter(prefix="/documents", tags=["Documents"])
 
 ALLOWED_EXTENSIONS = {".pdf", ".png", ".jpg", ".jpeg"}
 ALLOWED_MIME_TYPES = {"application/pdf", "image/png", "image/jpeg", "image/jpg"}
+
+def resolve_document_file_path(doc: Document) -> Optional[str]:
+    """
+    Safely and reliably resolve the physical file location on disk.
+    Handles absolute paths, relative paths, and fallback upload directories.
+    """
+    candidates = []
+    if doc.storage_path:
+        candidates.append(doc.storage_path)
+        if not os.path.isabs(doc.storage_path):
+            candidates.append(os.path.join(settings.STORAGE_DIR, os.path.basename(doc.storage_path)))
+            candidates.append(os.path.join(str(BASE_DIR), doc.storage_path))
+
+    if doc.storage_filename:
+        candidates.append(os.path.join(settings.STORAGE_DIR, doc.storage_filename))
+        candidates.append(os.path.join(str(BASE_DIR), "private_uploads", doc.storage_filename))
+        candidates.append(os.path.join(str(BASE_DIR), "backend", "private_uploads", doc.storage_filename))
+
+    for cand in candidates:
+        if cand and os.path.exists(cand):
+            return os.path.abspath(cand)
+    return None
+
+def update_env_variable(key: str, value: str):
+    root_dir = Path(__file__).resolve().parent.parent.parent.parent
+    backend_dir = Path(__file__).resolve().parent.parent.parent
+    candidate_paths = [root_dir / ".env", backend_dir / ".env", Path(BASE_DIR) / ".env"]
+    for env_path in candidate_paths:
+        try:
+            if env_path.exists():
+                lines = []
+                found = False
+                with open(env_path, "r", encoding="utf-8") as f:
+                    lines = f.readlines()
+                for i, line in enumerate(lines):
+                    if line.strip().startswith(f"{key}="):
+                        lines[i] = f"{key}={value}\n"
+                        found = True
+                        break
+                if not found:
+                    lines.append(f"{key}={value}\n")
+                with open(env_path, "w", encoding="utf-8") as f:
+                    f.writelines(lines)
+        except Exception:
+            pass
 
 @router.post("/upload", response_model=DocumentResponse, status_code=status.HTTP_201_CREATED)
 async def upload_document(
@@ -33,7 +88,6 @@ async def upload_document(
     current_user: User = Depends(require_patient),
     db: Session = Depends(get_db)
 ):
-    # Validate extension
     orig_filename = file.filename or "medical_record.pdf"
     _, ext = os.path.splitext(orig_filename.lower())
     if ext not in ALLOWED_EXTENSIONS:
@@ -42,196 +96,55 @@ async def upload_document(
             detail=f"Unsupported file format '{ext}'. Allowed formats: PDF, PNG, JPG, JPEG."
         )
 
-    # Save to temporary internal private storage path
-    storage_filename = f"{uuid.uuid4().hex}{ext}"
-    storage_path = os.path.join(settings.STORAGE_DIR, storage_filename)
-
-    file_size = 0
+    # Read uploaded bytes with size enforcement
+    file_bytes = b""
     try:
-        with open(storage_path, "wb") as buffer:
-            while chunk := await file.read(1024 * 1024):  # 1MB chunks
-                file_size += len(chunk)
-                if file_size > settings.MAX_FILE_SIZE_MB * 1024 * 1024:
-                    buffer.close()
-                    if os.path.exists(storage_path):
-                        os.remove(storage_path)
-                    raise HTTPException(
-                        status_code=status.HTTP_413_REQUEST_ENTITY_TOO_LARGE,
-                        detail=f"File exceeds maximum allowed size of {settings.MAX_FILE_SIZE_MB}MB."
-                    )
-                buffer.write(chunk)
+        while chunk := await file.read(1024 * 1024):  # 1MB chunks
+            file_bytes += chunk
+            if len(file_bytes) > settings.MAX_FILE_SIZE_MB * 1024 * 1024:
+                raise HTTPException(
+                    status_code=status.HTTP_413_REQUEST_ENTITY_TOO_LARGE,
+                    detail=f"File exceeds maximum allowed size of {settings.MAX_FILE_SIZE_MB}MB."
+                )
     except HTTPException:
         raise
     except Exception as e:
+        raise HTTPException(status_code=status.HTTP_500_INTERNAL_SERVER_ERROR, detail=f"File read error: {e}")
+
+    # Security & Magic-Byte Validation
+    is_valid, validation_msg = DocumentProcessingPipeline.validate_file_security(
+        filename=orig_filename,
+        content_bytes=file_bytes,
+        mime_type=file.content_type or "application/octet-stream"
+    )
+    if not is_valid:
+        raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail=validation_msg)
+
+    # Save to storage path
+    storage_filename = f"{uuid.uuid4().hex}{ext}"
+    storage_path = os.path.abspath(os.path.join(settings.STORAGE_DIR, storage_filename))
+    try:
+        with open(storage_path, "wb") as f:
+            f.write(file_bytes)
+    except Exception as e:
         if os.path.exists(storage_path):
             os.remove(storage_path)
-        raise HTTPException(status_code=status.HTTP_500_INTERNAL_SERVER_ERROR, detail=f"File write error: {e}")
+        raise HTTPException(status_code=status.HTTP_500_INTERNAL_SERVER_ERROR, detail=f"File storage error: {e}")
 
-    # Compute exact SHA-256 hash
-    sha256 = calculate_sha256(storage_path)
-
-    # Check for exact duplicate uploaded by this patient
-    existing_duplicate = (
-        db.query(Document)
-        .filter(Document.patient_id == current_user.id, Document.sha256_hash == sha256)
-        .first()
-    )
-
-    mime_type = file.content_type or "application/octet-stream"
-    doc_type = document_type or DocumentType.OTHER.value
-
-    # Extract text from document
-    extracted_text, pages = extract_document_content(storage_path, mime_type)
-
-    # Send to Gemini structured extraction service (or synthetic fallback if key not set)
-    extraction_data, gen_mode, model_id = gemini_service.extract_document_data(
-        document_text=extracted_text,
-        filename=orig_filename,
-        pages=pages
-    )
-
-    # Use detected document_type if not manually specified
-    if not document_type and extraction_data.get("document_type"):
-        doc_type = extraction_data["document_type"]
-
-    doc_date = None
-    if extraction_data.get("document_date"):
-        try:
-            doc_date = datetime.strptime(extraction_data["document_date"], "%Y-%m-%d").date()
-        except Exception:
-            pass
-
-    event_date = None
-    if extraction_data.get("event_date"):
-        try:
-            event_date = datetime.strptime(extraction_data["event_date"], "%Y-%m-%d").date()
-        except Exception:
-            pass
-
-    proc_status = ProcessingStatus.DUPLICATE.value if existing_duplicate else ProcessingStatus.COMPLETED.value
-
-    # Create Document record
-    document_record = Document(
+    # Execute Structured Pipeline
+    document_record, created_facts = DocumentProcessingPipeline.process_uploaded_document(
+        db=db,
         patient_id=current_user.id,
-        uploaded_filename=orig_filename,
-        storage_filename=storage_filename,
+        orig_filename=orig_filename,
         storage_path=storage_path,
-        mime_type=mime_type,
-        size_bytes=file_size,
-        sha256_hash=sha256,
-        document_type=doc_type,
-        processing_status=proc_status,
-        extracted_text=extracted_text,
-        extracted_data=extraction_data,
-        document_date=doc_date,
-        event_date=event_date,
-        uploaded_at=datetime.now(timezone.utc)
-    )
-    db.add(document_record)
-    db.commit()
-    db.refresh(document_record)
-
-    # Normalize extracted facts into relational table
-    created_facts = []
-
-    # 1. Medications
-    for med in extraction_data.get("medications", []):
-        fact = ExtractedFact(
-            patient_id=current_user.id,
-            document_id=document_record.id,
-            fact_type=FactType.MEDICATION.value,
-            normalized_value=med.get("name", "Unknown Medication"),
-            value_json=med,
-            unit=None,
-            event_date=event_date or doc_date,
-            source_page=med.get("source_page", 1),
-            source_excerpt=med.get("source_excerpt"),
-            extraction_status=ExtractionStatus.EXTRACTED.value,
-            verification_status=VerificationStatus.UNVERIFIED.value,
-            created_at=datetime.now(timezone.utc)
-        )
-        db.add(fact)
-        created_facts.append(fact)
-
-    # 2. Conditions
-    for cond in extraction_data.get("conditions", []):
-        fact = ExtractedFact(
-            patient_id=current_user.id,
-            document_id=document_record.id,
-            fact_type=FactType.CONDITION.value,
-            normalized_value=cond.get("name", "Unknown Condition"),
-            value_json=cond,
-            unit=None,
-            event_date=event_date or doc_date,
-            source_page=cond.get("source_page", 1),
-            source_excerpt=cond.get("source_excerpt"),
-            extraction_status=ExtractionStatus.EXTRACTED.value,
-            verification_status=VerificationStatus.UNVERIFIED.value,
-            created_at=datetime.now(timezone.utc)
-        )
-        db.add(fact)
-        created_facts.append(fact)
-
-    # 3. Lab Tests
-    for lab in extraction_data.get("lab_tests", []):
-        fact = ExtractedFact(
-            patient_id=current_user.id,
-            document_id=document_record.id,
-            fact_type=FactType.LAB_RESULT.value,
-            normalized_value=lab.get("name", "Lab Test"),
-            value_json=lab,
-            unit=lab.get("unit"),
-            event_date=event_date or doc_date,
-            source_page=lab.get("source_page", 1),
-            source_excerpt=lab.get("source_excerpt"),
-            extraction_status=ExtractionStatus.EXTRACTED.value,
-            verification_status=VerificationStatus.UNVERIFIED.value,
-            created_at=datetime.now(timezone.utc)
-        )
-        db.add(fact)
-        created_facts.append(fact)
-
-    # 4. Allergies
-    for allergy in extraction_data.get("allergies", []):
-        fact = ExtractedFact(
-            patient_id=current_user.id,
-            document_id=document_record.id,
-            fact_type=FactType.ALLERGY.value,
-            normalized_value=allergy.get("allergen", "Allergy"),
-            value_json=allergy,
-            unit=None,
-            event_date=event_date or doc_date,
-            source_page=allergy.get("source_page", 1),
-            source_excerpt=allergy.get("source_excerpt"),
-            extraction_status=ExtractionStatus.EXTRACTED.value,
-            verification_status=VerificationStatus.UNVERIFIED.value,
-            created_at=datetime.now(timezone.utc)
-        )
-        db.add(fact)
-        created_facts.append(fact)
-
-    if created_facts:
-        db.commit()
-
-    # Automatically run medication discrepancy detection
-    detect_medication_discrepancies(db, current_user.id)
-
-    log_audit_event(
-        db,
-        action="DOCUMENT_UPLOAD",
-        resource_type="document",
-        resource_id=str(document_record.id),
-        actor_user_id=current_user.id,
-        outcome="success",
-        details={
-            "filename": orig_filename,
-            "type": doc_type,
-            "facts_count": len(created_facts),
-            "is_duplicate": bool(existing_duplicate)
-        }
+        mime_type=file.content_type or "application/octet-stream",
+        file_size=len(file_bytes),
+        requested_doc_type=document_type
     )
 
-    return DocumentResponse.model_validate(document_record)
+    resp = DocumentResponse.model_validate(document_record)
+    resp.facts_count = len(created_facts)
+    return resp
 
 @router.get("", response_model=List[DocumentResponse])
 def get_documents(
@@ -241,7 +154,12 @@ def get_documents(
 ):
     if current_user.role == UserRole.PATIENT.value:
         docs = db.query(Document).filter(Document.patient_id == current_user.id).order_by(Document.uploaded_at.desc()).all()
-        return [DocumentResponse.model_validate(d) for d in docs]
+        result = []
+        for d in docs:
+            r = DocumentResponse.model_validate(d)
+            r.facts_count = len(d.facts)
+            result.append(r)
+        return result
 
     elif current_user.role == UserRole.CLINICIAN.value:
         if not patient_id:
@@ -282,7 +200,12 @@ def get_documents(
             .order_by(Document.uploaded_at.desc())
             .all()
         )
-        return [DocumentResponse.model_validate(d) for d in docs]
+        result = []
+        for d in docs:
+            r = DocumentResponse.model_validate(d)
+            r.facts_count = len(d.facts)
+            result.append(r)
+        return result
 
     raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail="Access denied.")
 
@@ -293,35 +216,52 @@ def get_document_details(
     db: Session = Depends(get_db)
 ):
     doc = check_document_access(document_id, current_user, db)
-    facts_count = db.query(ExtractedFact).filter(ExtractedFact.document_id == doc.id).count()
     resp = DocumentDetailResponse.model_validate(doc)
-    resp.facts_count = facts_count
+    resp.facts_count = len(doc.facts)
     return resp
 
 @router.get("/{document_id}/file")
 def get_document_file(
     document_id: int,
+    inline: bool = Query(False),
     current_user: User = Depends(get_current_user),
     db: Session = Depends(get_db)
 ):
     doc = check_document_access(document_id, current_user, db)
-    if not os.path.exists(doc.storage_path):
+    file_path = resolve_document_file_path(doc)
+    if not file_path:
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Physical document file missing on server.")
 
     log_audit_event(
         db,
-        action="DOCUMENT_DOWNLOAD",
+        action="DOCUMENT_VIEW" if inline else "DOCUMENT_DOWNLOAD",
         resource_type="document",
         resource_id=str(doc.id),
         actor_user_id=current_user.id,
         outcome="success"
     )
 
+    if inline:
+        return FileResponse(
+            path=file_path,
+            media_type=doc.mime_type,
+            headers={"Content-Disposition": f'inline; filename="{doc.uploaded_filename}"'}
+        )
+
     return FileResponse(
-        path=doc.storage_path,
+        path=file_path,
         media_type=doc.mime_type,
         filename=doc.uploaded_filename
     )
+
+@router.get("/{document_id}/view")
+def view_document_file(
+    document_id: int,
+    current_user: User = Depends(get_current_user),
+    db: Session = Depends(get_db)
+):
+    """Serve the document with inline Content-Disposition so browsers/modals render images and PDFs directly."""
+    return get_document_file(document_id=document_id, inline=True, current_user=current_user, db=db)
 
 @router.post("/{document_id}/manual-entry", response_model=DocumentResponse)
 def save_manual_entry(
@@ -438,3 +378,168 @@ def delete_document(
     )
 
     return {"message": "Document deleted successfully"}
+
+@router.post("/{document_id}/reprocess", response_model=DocumentDetailResponse)
+def reprocess_document(
+    document_id: int,
+    current_user: User = Depends(require_clinician_or_patient),
+    db: Session = Depends(get_db)
+):
+    doc = check_document_access(document_id, current_user, db)
+    file_path = resolve_document_file_path(doc)
+    if not file_path:
+        doc.processing_status = ProcessingStatus.FAILED.value
+        db.commit()
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Physical document file missing on server.")
+
+    if not gemini_service.is_available():
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail="Gemini AI is not configured. Please configure your GEMINI_API_KEY to reprocess this document with multimodal AI."
+        )
+
+    extracted_text, pages = extract_document_content(file_path, doc.mime_type)
+    extraction_data, gen_mode, model_id = gemini_service.extract_document_data(
+        document_text=extracted_text,
+        filename=doc.uploaded_filename,
+        pages=pages,
+        file_path=file_path,
+        mime_type=doc.mime_type
+    )
+
+    doc.extracted_text = extracted_text
+    doc.extracted_data = extraction_data
+    if extraction_data.get("document_type") and (doc.document_type == "other" or not doc.document_type):
+        doc.document_type = extraction_data["document_type"]
+
+    if extraction_data.get("document_date"):
+        try:
+            doc.document_date = datetime.strptime(extraction_data["document_date"], "%Y-%m-%d").date()
+        except Exception:
+            pass
+
+    if extraction_data.get("event_date"):
+        try:
+            doc.event_date = datetime.strptime(extraction_data["event_date"], "%Y-%m-%d").date()
+        except Exception:
+            pass
+
+    # Clear existing facts and re-create from newly extracted data
+    db.query(ExtractedFact).filter(ExtractedFact.document_id == doc.id).delete()
+
+    from app.services.confidence_service import ConfidenceScoringService
+
+    created_facts = []
+    is_ocr = not bool(extracted_text and len(extracted_text.strip()) > 30)
+
+    for item_type, items in [
+        (FactType.MEDICATION.value, extraction_data.get("medications", [])),
+        (FactType.CONDITION.value, extraction_data.get("conditions", [])),
+        (FactType.LAB_RESULT.value, extraction_data.get("lab_tests", [])),
+        (FactType.ALLERGY.value, extraction_data.get("allergies", []))
+    ]:
+        for item in items:
+            val_name = item.get("name") or item.get("allergen") or "Extracted Item"
+            exc = item.get("source_excerpt")
+            sp = item.get("source_page", 1)
+
+            # Find offsets if possible
+            start_off, end_off = None, None
+            if exc and extracted_text:
+                idx = extracted_text.lower().find(exc.lower().strip())
+                if idx != -1:
+                    start_off, end_off = idx, idx + len(exc.strip())
+
+            # Evaluate confidence
+            conf = ConfidenceScoringService.evaluate_claim_confidence(
+                fact_type=item_type,
+                normalized_value=val_name,
+                value_json=item,
+                source_excerpt=exc,
+                source_text=extracted_text,
+                source_page=sp,
+                document_date=str(doc.document_date) if doc.document_date else None,
+                event_date=str(doc.event_date) if doc.event_date else None,
+                is_ocr=is_ocr
+            )
+
+            fact = ExtractedFact(
+                patient_id=doc.patient_id,
+                document_id=doc.id,
+                fact_type=item_type,
+                normalized_value=val_name,
+                value_json=item,
+                unit=item.get("unit"),
+                event_date=doc.event_date or doc.document_date,
+                source_page=sp,
+                source_excerpt=exc,
+                char_offset_start=start_off,
+                char_offset_end=end_off,
+                extraction_status=ExtractionStatus.EXTRACTED.value,
+                verification_status=conf["recommended_status"],
+                confidence_score=conf["score"],
+                confidence_label=conf["label"],
+                confidence_breakdown=conf["breakdown"],
+                confidence_reasons=conf["reasons"],
+                confidence_version=conf["algorithm_version"],
+                created_at=datetime.now(timezone.utc)
+            )
+            db.add(fact)
+            created_facts.append(fact)
+
+    doc.processing_status = ProcessingStatus.COMPLETED.value
+    db.commit()
+    db.refresh(doc)
+
+    detect_medication_discrepancies(db, doc.patient_id)
+
+    log_audit_event(
+        db,
+        action="DOCUMENT_REPROCESS",
+        resource_type="document",
+        resource_id=str(doc.id),
+        actor_user_id=current_user.id,
+        outcome="success",
+        details={"facts_count": len(created_facts), "model": model_id, "mode": gen_mode}
+    )
+
+    resp = DocumentDetailResponse.model_validate(doc)
+    resp.facts_count = len(doc.facts)
+    return resp
+
+@router.get("/ai/status", response_model=AIStatusResponse)
+def get_ai_status(current_user: User = Depends(get_current_user)):
+    is_avail = gemini_service.is_available()
+    return AIStatusResponse(
+        ai_configured=is_avail,
+        ai_mode=settings.AI_MODE,
+        ai_model=gemini_service.model_name or settings.GEMINI_MODEL,
+        message="Gemini Multimodal AI active" if is_avail else "Gemini API key is not configured (Demonstration mode)"
+    )
+
+@router.post("/ai/configure", response_model=AIStatusResponse)
+def configure_gemini_ai(
+    req: AIConfigRequest,
+    current_user: User = Depends(require_admin)
+):
+    success, msg = gemini_service.configure_key(req.gemini_api_key, req.gemini_model)
+    if not success:
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail=f"Failed to validate Gemini API key: {msg}"
+        )
+
+    # Persist in .env
+    try:
+        update_env_variable("GEMINI_API_KEY", req.gemini_api_key.strip())
+        if gemini_service.model_name:
+            update_env_variable("GEMINI_MODEL", gemini_service.model_name.strip())
+    except Exception as e:
+        pass
+
+    return AIStatusResponse(
+        ai_configured=True,
+        ai_mode="gemini",
+        ai_model=gemini_service.model_name,
+        message=msg
+    )

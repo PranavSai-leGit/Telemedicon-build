@@ -1,7 +1,18 @@
 import React, { useState } from 'react';
 import { Link, useNavigate, useLocation } from 'react-router-dom';
-import { Activity, Lock, Mail, Eye, EyeOff, AlertCircle, ArrowRight, ShieldCheck, UserCheck, Stethoscope } from 'lucide-react';
+import {
+  Lock,
+  Mail,
+  Eye,
+  EyeOff,
+  ArrowRight,
+  ShieldCheck,
+  UserCheck,
+  Stethoscope,
+  AlertCircle
+} from 'lucide-react';
 import { useAuth } from '../../contexts/AuthContext';
+import { MediTaleLogo } from '../../components/MediTaleLogo';
 
 export const LoginPage: React.FC = () => {
   const { login } = useAuth();
@@ -35,29 +46,24 @@ export const LoginPage: React.FC = () => {
     }
   };
 
-  const fillDemoCredentials = (demoEmail: string) => {
+  const fillDemoCredentials = (demoEmail: string, demoPass: string) => {
     setEmail(demoEmail);
-    setPassword('Password123!');
+    setPassword(demoPass);
     setError(null);
   };
 
   return (
-    <div className="min-h-screen bg-[#F5F9FA] dark:bg-[#0B1520] text-[#172B3A] dark:text-[#F0F6FA] flex flex-col justify-center py-12 sm:px-6 lg:px-8">
-      <div className="sm:mx-auto sm:w-full sm:max-w-md text-center">
-        <Link to="/" className="inline-flex items-center space-x-2.5">
-          <div className="w-10 h-10 rounded-xl bg-[#0F766E] flex items-center justify-center text-white shadow-xs">
-            <Activity className="w-6 h-6" />
-          </div>
-          <span className="font-bold text-2xl tracking-tight text-slate-900 dark:text-white">
-            Telemedicon <span className="text-sm font-normal text-slate-500">by MediTale</span>
-          </span>
+    <div className="min-h-screen bg-[#F5F8FB] dark:bg-[#0B1220] text-[#172B3A] dark:text-[#E7EEF5] flex flex-col justify-center py-12 sm:px-6 lg:px-8">
+      <div className="sm:mx-auto sm:w-full sm:max-w-md text-center flex flex-col items-center">
+        <Link to="/" className="inline-flex justify-center mb-2">
+          <MediTaleLogo variant="full" size="lg" showTagline={true} />
         </Link>
-        <h2 className="mt-4 text-2xl font-bold tracking-tight text-slate-900 dark:text-white">
+        <h2 className="mt-4 text-xl font-bold tracking-tight text-[#172B3A] dark:text-[#E7EEF5]">
           Sign in to your account
         </h2>
-        <p className="mt-1 text-xs text-slate-500 dark:text-slate-400">
+        <p className="mt-1 text-xs text-[#536777] dark:text-[#91A3B5]">
           Or{' '}
-          <Link to="/register" className="font-medium text-teal-700 dark:text-teal-400 hover:underline">
+          <Link to="/register" className="font-semibold text-[#0F766E] dark:text-[#5EEAD4] hover:underline">
             create a new patient account
           </Link>
         </p>
@@ -135,38 +141,38 @@ export const LoginPage: React.FC = () => {
           </form>
 
           {/* Quick Demo Autofill Buttons */}
-          <div className="mt-6 pt-5 border-t border-slate-100 dark:border-slate-800">
-            <span className="block text-[11px] font-semibold uppercase tracking-wider text-slate-400 dark:text-slate-500 mb-2.5 text-center">
-              One-Click Demo Account Credentials
+          <div className="mt-6 pt-5 border-t border-[#D9E3EB] dark:border-[#2A3A4D]">
+            <span className="block text-[11px] font-semibold uppercase tracking-wider text-[#536777] dark:text-[#91A3B5] mb-2.5 text-center">
+              Quick Demonstration Accounts
             </span>
             <div className="grid grid-cols-3 gap-2">
               <button
                 type="button"
-                onClick={() => fillDemoCredentials('patient@meditale.demo')}
-                className="p-2 text-center rounded-lg border border-teal-200 dark:border-teal-900/60 bg-teal-50/50 dark:bg-teal-950/30 hover:bg-teal-100/60 text-teal-800 dark:text-teal-300 text-[11px] font-medium transition-colors"
+                onClick={() => fillDemoCredentials('patient@meditale.demo', 'Password123!')}
+                className="p-2 text-center rounded-lg border border-[#0F766E]/20 bg-[#E4F3F0] dark:bg-[#123831] hover:bg-[#0F766E]/15 text-[#0F766E] dark:text-[#5EEAD4] text-[11px] font-medium transition-colors"
               >
-                <UserCheck className="w-3.5 h-3.5 mx-auto mb-1 text-teal-700 dark:text-teal-400" />
+                <UserCheck className="w-3.5 h-3.5 mx-auto mb-1 text-[#0F766E] dark:text-[#5EEAD4]" />
                 <span>Patient</span>
               </button>
               <button
                 type="button"
-                onClick={() => fillDemoCredentials('clinician@meditale.demo')}
-                className="p-2 text-center rounded-lg border border-blue-200 dark:border-blue-900/60 bg-blue-50/50 dark:bg-blue-950/30 hover:bg-blue-100/60 text-blue-800 dark:text-blue-300 text-[11px] font-medium transition-colors"
+                onClick={() => fillDemoCredentials('clinician@meditale.demo', 'Password123!')}
+                className="p-2 text-center rounded-lg border border-[#BFDBFE] dark:border-[#3B82F6]/30 bg-[#EFF6FF] dark:bg-[#1E293B] hover:bg-[#BFDBFE]/50 text-[#1E40AF] dark:text-[#93C5FD] text-[11px] font-medium transition-colors"
               >
-                <Stethoscope className="w-3.5 h-3.5 mx-auto mb-1 text-blue-700 dark:text-blue-400" />
+                <Stethoscope className="w-3.5 h-3.5 mx-auto mb-1 text-[#2563EB] dark:text-[#93C5FD]" />
                 <span>Clinician</span>
               </button>
               <button
                 type="button"
-                onClick={() => fillDemoCredentials('admin@meditale.demo')}
-                className="p-2 text-center rounded-lg border border-slate-200 dark:border-slate-800 bg-slate-50/50 dark:bg-slate-900/30 hover:bg-slate-100/60 text-slate-800 dark:text-slate-300 text-[11px] font-medium transition-colors"
+                onClick={() => fillDemoCredentials('admin@meditale.demo', 'Password123!')}
+                className="p-2 text-center rounded-lg border border-[#D9E3EB] dark:border-[#2A3A4D] bg-[#EDF3F7] dark:bg-[#162437] hover:bg-[#D9E3EB]/60 text-[#172B3A] dark:text-[#E7EEF5] text-[11px] font-medium transition-colors"
               >
-                <ShieldCheck className="w-3.5 h-3.5 mx-auto mb-1 text-slate-600 dark:text-slate-400" />
+                <ShieldCheck className="w-3.5 h-3.5 mx-auto mb-1 text-[#536777] dark:text-[#91A3B5]" />
                 <span>Admin</span>
               </button>
             </div>
-            <p className="text-[10px] text-center text-slate-400 dark:text-slate-500 mt-2">
-              Password for all demonstration accounts: <code className="font-mono">Password123!</code>
+            <p className="text-[10px] text-center text-[#536777] dark:text-[#91A3B5] mt-2">
+              Instant login populated with verified synthetic patient histories.
             </p>
           </div>
         </div>

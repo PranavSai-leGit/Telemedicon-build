@@ -1,4 +1,4 @@
-from pydantic import BaseModel
+from pydantic import BaseModel, ConfigDict
 from datetime import datetime
 from typing import Optional, Any, Dict
 from app.schemas.fact import FactResponse
@@ -23,5 +23,4 @@ class DiscrepancyResponse(BaseModel):
     fact_1: Optional[FactResponse] = None
     fact_2: Optional[FactResponse] = None
 
-    class Config:
-        from_attributes = True
+    model_config = ConfigDict(from_attributes=True)

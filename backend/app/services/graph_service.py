@@ -98,6 +98,8 @@ def generate_patient_relationship_graph(
                 date=date_str,
                 details=fact.value_json or {},
                 verification_status=fact.verification_status,
+                confidence_score=fact.confidence_score,
+                confidence_label=fact.confidence_label,
                 document_name=doc_name,
                 document_id=fact.document_id,
                 source_page=fact.source_page or 1,

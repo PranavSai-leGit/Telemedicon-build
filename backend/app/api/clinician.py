@@ -612,3 +612,212 @@ def get_all_clinical_handovers(
         })
     return results
 
+@router.get("/verification-queue")
+def get_verification_queue(
+    patient_id: Optional[int] = Query(None),
+    filter_type: Optional[str] = Query("all"),  # all, low_confidence, unsupported, conflicts, unverified, rejected
+    limit: int = Query(50, le=200),
+    current_user: User = Depends(require_clinician),
+    db: Session = Depends(get_db)
+):
+    """
+    Dedicated clinical verification queue for inspecting claims that require human review,
+    unsupported claims, conflicting records, or low-confidence extractions.
+    """
+    now = datetime.now(timezone.utc)
+    # Find all active sharing grants for this clinician
+    grant_query = (
+        db.query(SharingGrant.patient_id, SharingGrantDocument.document_id)
+        .join(SharingGrantDocument, SharingGrant.id == SharingGrantDocument.sharing_grant_id)
+        .filter(
+            SharingGrant.clinician_id == current_user.id,
+            SharingGrant.status == SharingStatus.ACTIVE.value,
+            SharingGrant.revoked_at.is_(None),
+            (SharingGrant.expires_at.is_(None) | (SharingGrant.expires_at > now))
+        )
+    )
+    if patient_id:
+        grant_query = grant_query.filter(SharingGrant.patient_id == patient_id)
+
+    grant_pairs = grant_query.all()
+    if not grant_pairs:
+        return []
+
+    allowed_doc_ids = {gp[1] for gp in grant_pairs}
+
+    # Query facts belonging to allowed documents
+    query = (
+        db.query(ExtractedFact, Document.uploaded_filename, User.full_name)
+        .join(Document, ExtractedFact.document_id == Document.id)
+        .join(User, ExtractedFact.patient_id == User.id)
+        .filter(ExtractedFact.document_id.in_(allowed_doc_ids))
+    )
+
+    if filter_type == "low_confidence":
+        query = query.filter((ExtractedFact.confidence_score < 60) | (ExtractedFact.confidence_label == "Low"))
+    elif filter_type == "unsupported":
+        query = query.filter(
+            (ExtractedFact.source_excerpt.is_(None)) | 
+            (ExtractedFact.source_excerpt == "") |
+            (ExtractedFact.verification_status == "contradicted_by_source")
+        )
+    elif filter_type == "conflicts":
+        query = query.filter(ExtractedFact.verification_status == "needs_review")
+    elif filter_type == "unverified":
+        query = query.filter(ExtractedFact.verification_status.in_(["unverified", "pending_verification", "needs_review"]))
+    elif filter_type == "rejected":
+        query = query.filter(ExtractedFact.verification_status == "rejected")
+    else:
+        # 'all' prioritizes items needing attention
+        pass
+
+    results = query.order_by(
+        ExtractedFact.confidence_score.asc().nullsfirst(),
+        ExtractedFact.created_at.desc()
+    ).limit(limit).all()
+
+    queue_items = []
+    for fact, doc_name, pat_name in results:
+        # Check if there is an active discrepancy involving this fact
+        has_discrepancy = db.query(Discrepancy).filter(
+            (Discrepancy.fact_id_1 == fact.id) | (Discrepancy.fact_id_2 == fact.id)
+        ).first() is not None
+
+        queue_items.append({
+            "fact_id": fact.id,
+            "patient_id": fact.patient_id,
+            "patient_name": pat_name,
+            "document_id": fact.document_id,
+            "document_name": doc_name,
+            "fact_type": fact.fact_type,
+            "normalized_value": fact.normalized_value,
+            "value_json": fact.value_json,
+            "unit": fact.unit,
+            "event_date": str(fact.event_date) if fact.event_date else None,
+            "date_precision": fact.date_precision or "exact",
+            "source_page": fact.source_page or 1,
+            "source_excerpt": fact.source_excerpt,
+            "char_offset_start": fact.char_offset_start,
+            "char_offset_end": fact.char_offset_end,
+            "verification_status": fact.verification_status,
+            "confidence_score": fact.confidence_score,
+            "confidence_label": fact.confidence_label or ("High" if (fact.confidence_score or 0) >= 85 else ("Medium" if (fact.confidence_score or 0) >= 60 else "Low")),
+            "confidence_breakdown": fact.confidence_breakdown,
+            "confidence_reasons": fact.confidence_reasons or [],
+            "has_discrepancy": has_discrepancy,
+            "reviewer_notes": fact.reviewer_notes,
+            "original_extracted_value": fact.original_extracted_value,
+            "reviewed_at": fact.reviewed_at.isoformat() if fact.reviewed_at else None
+        })
+
+    return queue_items
+
+@router.post("/verification-queue/{fact_id}/resolve")
+def resolve_queue_item(
+    fact_id: int,
+    action: str = Query(..., description="verify, needs_review, reject, correct"),
+    reviewer_notes: Optional[str] = Query(None),
+    corrected_value: Optional[str] = Query(None),
+    current_user: User = Depends(require_clinician),
+    db: Session = Depends(get_db)
+):
+    """
+    Clinician resolves a verification queue item:
+    - verify: marks verified_against_source (or clinician_verified)
+    - needs_review: marks needs_review with clinical note
+    - reject: marks rejected with reason
+    - correct: updates value, records original_extracted_value, marks corrected_by_reviewer
+    """
+    fact = db.query(ExtractedFact).filter(ExtractedFact.id == fact_id).first()
+    if not fact:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Fact not found.")
+
+    allowed_doc_ids = get_authorized_document_ids_for_clinician(current_user.id, fact.patient_id, db)
+    if fact.document_id not in allowed_doc_ids:
+        raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail="No active sharing grant for this patient document.")
+
+    if action == "verify":
+        fact.verification_status = "verified_against_source"
+    elif action == "reject":
+        fact.verification_status = "rejected"
+    elif action == "needs_review":
+        fact.verification_status = "needs_review"
+    elif action == "correct":
+        if not corrected_value or not corrected_value.strip():
+            raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="Corrected value cannot be empty.")
+        if not fact.original_extracted_value:
+            fact.original_extracted_value = fact.normalized_value
+        fact.normalized_value = corrected_value.strip()
+        fact.verification_status = "corrected_by_reviewer"
+    else:
+        raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail=f"Unsupported action '{action}'.")
+
+    if reviewer_notes:
+        fact.reviewer_notes = reviewer_notes
+
+    fact.reviewed_by = current_user.id
+    fact.reviewed_at = datetime.now(timezone.utc)
+
+    db.commit()
+    db.refresh(fact)
+
+    log_audit_event(
+        db,
+        action="CLINICAL_VERIFICATION_RESOLVE",
+        resource_type="extracted_fact",
+        resource_id=str(fact.id),
+        actor_user_id=current_user.id,
+        outcome="success",
+        details={
+            "action": action,
+            "status": fact.verification_status,
+            "notes": reviewer_notes,
+            "corrected_value": corrected_value
+        }
+    )
+
+    return {
+        "fact_id": fact.id,
+        "verification_status": fact.verification_status,
+        "normalized_value": fact.normalized_value,
+        "reviewer_notes": fact.reviewer_notes,
+        "reviewed_at": fact.reviewed_at
+    }
+
+@router.get("/verification-history")
+def get_verification_history(
+    limit: int = Query(50, le=200),
+    current_user: User = Depends(require_clinician),
+    db: Session = Depends(get_db)
+):
+    """
+    View previous verification actions taken by this clinician with audit records.
+    """
+    facts = (
+        db.query(ExtractedFact, Document.uploaded_filename, User.full_name)
+        .join(Document, ExtractedFact.document_id == Document.id)
+        .join(User, ExtractedFact.patient_id == User.id)
+        .filter(ExtractedFact.reviewed_by == current_user.id)
+        .order_by(ExtractedFact.reviewed_at.desc().nullslast())
+        .limit(limit)
+        .all()
+    )
+
+    history = []
+    for fact, doc_name, pat_name in facts:
+        history.append({
+            "fact_id": fact.id,
+            "patient_name": pat_name,
+            "document_name": doc_name,
+            "fact_type": fact.fact_type,
+            "normalized_value": fact.normalized_value,
+            "original_extracted_value": fact.original_extracted_value,
+            "verification_status": fact.verification_status,
+            "confidence_score": fact.confidence_score,
+            "confidence_label": fact.confidence_label,
+            "reviewer_notes": fact.reviewer_notes,
+            "reviewed_at": fact.reviewed_at
+        })
+    return history
+
+

@@ -6,8 +6,8 @@
 backend/venv/
 venv/
 env/
-__pycache__/
-*.pyc
+**/__pycache__/
+*.py[cod]
 
 # Private uploads (HIPAA/Privacy storage)
 private_uploads/

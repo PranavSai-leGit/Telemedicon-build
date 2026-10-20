@@ -1,0 +1,75 @@
+[
+  {
+    "benchmark_id": "BM-001",
+    "title": "Type 2 Diabetes Prescription Follow-up",
+    "document_type": "prescription",
+    "document_text": "METROPOLITAN ENDOCRINOLOGY CLINIC\nDate: 2025-03-10\nPatient: Johnathan Doe (DOB: 1978-04-12)\nDiagnosis: Type 2 Diabetes Mellitus, Essential Hypertension.\n\nPrescription:\n1. Metformin HCl 500mg - Take 1 tablet twice daily with meals (BID).\n2. Lisinopril 10mg - Take 1 tablet once daily in the morning.\n\nLab Orders:\n- HbA1c: 7.2% (Target < 7.0%)\n- Serum Creatinine: 1.1 mg/dL\n\nNotes: Patient denies any chest pain or shortness of breath. Discontinued Glipizide last month due to hypoglycemia.\nNext appointment in 3 months.",
+    "ground_truth": {
+      "document_type": "prescription",
+      "document_date": "2025-03-10",
+      "medications": [
+        {"name": "Metformin", "dosage": "500mg", "frequency": "twice daily"},
+        {"name": "Lisinopril", "dosage": "10mg", "frequency": "once daily"}
+      ],
+      "conditions": [
+        {"name": "Type 2 Diabetes Mellitus", "status": "active"},
+        {"name": "Essential Hypertension", "status": "active"}
+      ],
+      "lab_tests": [
+        {"name": "HbA1c", "value": 7.2, "unit": "%"},
+        {"name": "Serum Creatinine", "value": 1.1, "unit": "mg/dL"}
+      ],
+      "contradicted_or_discontinued": [
+        "Glipizide",
+        "Chest pain",
+        "Shortness of breath"
+      ]
+    }
+  },
+  {
+    "benchmark_id": "BM-002",
+    "title": "Cardiology Discharge Summary",
+    "document_type": "discharge_summary",
+    "document_text": "CITY GENERAL HOSPITAL - DISCHARGE SUMMARY\nAdmission Date: 2025-01-20\nDischarge Date: 2025-01-25\nDischarge Diagnoses: Atrial Fibrillation with rapid ventricular response, Hyperlipidemia.\n\nDischarge Medications:\n1. Apixaban 5mg orally twice daily for systemic thromboembolism prophylaxis.\n2. Metoprolol Tartrate 25mg orally BID.\n3. Rosuvastatin 20mg once daily at bedtime.\n\nAllergies: Penicillin (severe urticaria and hives).\n\nLaboratory Results at Discharge:\n- Total Cholesterol: 195 mg/dL\n- LDL Cholesterol: 110 mg/dL\n- Potassium: 4.4 mmol/L\n\nFollow-up: Outpatient cardiology review in 2 weeks.",
+    "ground_truth": {
+      "document_type": "discharge_summary",
+      "document_date": "2025-01-25",
+      "medications": [
+        {"name": "Apixaban", "dosage": "5mg", "frequency": "twice daily"},
+        {"name": "Metoprolol Tartrate", "dosage": "25mg", "frequency": "BID"},
+        {"name": "Rosuvastatin", "dosage": "20mg", "frequency": "once daily"}
+      ],
+      "conditions": [
+        {"name": "Atrial Fibrillation", "status": "active"},
+        {"name": "Hyperlipidemia", "status": "active"}
+      ],
+      "allergies": [
+        {"allergen": "Penicillin", "reaction": "urticaria and hives"}
+      ],
+      "lab_tests": [
+        {"name": "Total Cholesterol", "value": 195.0, "unit": "mg/dL"},
+        {"name": "LDL Cholesterol", "value": 110.0, "unit": "mg/dL"},
+        {"name": "Potassium", "value": 4.4, "unit": "mmol/L"}
+      ]
+    }
+  },
+  {
+    "benchmark_id": "BM-003",
+    "title": "Outpatient Laboratory Chemistry Report",
+    "document_type": "laboratory_report",
+    "document_text": "DIAGNOSTIC PATHOLOGY LABS\nSpecimen Collected: 2025-02-14\nResult Date: 2025-02-15\n\nCOMPREHENSIVE METABOLIC PANEL:\n- Fasting Blood Glucose: 115 mg/dL (Ref: 70 - 99 mg/dL) [HIGH]\n- Blood Urea Nitrogen: 18 mg/dL (Ref: 7 - 20 mg/dL)\n- Serum Creatinine: 0.9 mg/dL (Ref: 0.6 - 1.2 mg/dL)\n- eGFR: > 90 mL/min/1.73m2\n- Sodium: 139 mEq/L (Ref: 135 - 145 mEq/L)\n- Potassium: 4.2 mEq/L (Ref: 3.5 - 5.1 mEq/L)",
+    "ground_truth": {
+      "document_type": "laboratory_report",
+      "document_date": "2025-02-15",
+      "medications": [],
+      "conditions": [],
+      "lab_tests": [
+        {"name": "Fasting Blood Glucose", "value": 115.0, "unit": "mg/dL"},
+        {"name": "Blood Urea Nitrogen", "value": 18.0, "unit": "mg/dL"},
+        {"name": "Serum Creatinine", "value": 0.9, "unit": "mg/dL"},
+        {"name": "Sodium", "value": 139.0, "unit": "mEq/L"},
+        {"name": "Potassium", "value": 4.2, "unit": "mEq/L"}
+      ]
+    }
+  }
+]

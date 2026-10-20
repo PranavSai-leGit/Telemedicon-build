@@ -220,17 +220,21 @@ def reprocess_document(
     if not doc:
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Document not found.")
 
-    if not os.path.exists(doc.storage_path):
+    from app.api.documents import resolve_document_file_path
+    file_path = resolve_document_file_path(doc)
+    if not file_path:
         doc.processing_status = ProcessingStatus.FAILED.value
         db.commit()
         raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="Physical file missing from storage.")
 
     try:
-        extracted_text, pages = extract_document_content(doc.storage_path, doc.mime_type)
+        extracted_text, pages = extract_document_content(file_path, doc.mime_type)
         extraction_data, gen_mode, model_id = gemini_service.extract_document_data(
             document_text=extracted_text,
             filename=doc.uploaded_filename,
-            pages=pages
+            pages=pages,
+            file_path=file_path,
+            mime_type=doc.mime_type
         )
 
         doc.extracted_text = extracted_text
@@ -338,4 +342,118 @@ def get_system_configuration(
         "ai_configured": gemini_service.is_available(),
         "storage_directory": settings.STORAGE_DIR
     }
+
+@router.get("/ai-monitoring")
+def get_ai_monitoring_metrics(
+    limit: int = Query(50, le=200),
+    current_user: User = Depends(require_admin),
+    db: Session = Depends(get_db)
+):
+    """
+    Operational AI monitoring dashboard:
+    Live statistics on extraction requests, latency, token usage, cost estimations,
+    provider breakdown, confidence score distributions, and error tracking.
+    PROTECTS PATIENT PRIVACY: Sensitive clinical statements are omitted.
+    """
+    from app.models.ai_usage import AIUsageLog
+    from sqlalchemy import func
+
+    total_requests = db.query(AIUsageLog).count()
+    if total_requests == 0:
+        # Initial empty state or default summary
+        return {
+            "summary": {
+                "total_requests": 0,
+                "success_rate_percent": 100.0,
+                "average_latency_ms": 0.0,
+                "total_tokens": 0,
+                "estimated_cost_usd": 0.0,
+                "average_confidence": 0.0,
+                "provider": "google" if gemini_service.is_available() else "rule_fallback",
+                "active_model": settings.GEMINI_MODEL
+            },
+            "provider_distribution": {},
+            "status_distribution": {},
+            "confidence_distribution": {"high": 0, "medium": 0, "low": 0},
+            "recent_requests": []
+        }
+
+    success_count = db.query(AIUsageLog).filter(AIUsageLog.status == "success").count()
+    success_rate = round((success_count / total_requests) * 100.0, 1)
+
+    avg_lat = db.query(func.avg(AIUsageLog.latency_ms)).scalar() or 0.0
+    total_tokens = db.query(func.sum(AIUsageLog.total_tokens)).scalar() or 0
+    total_cost = db.query(func.sum(AIUsageLog.estimated_cost_usd)).scalar() or 0.0
+    avg_conf = db.query(func.avg(AIUsageLog.average_confidence)).scalar() or 0.0
+
+    # Provider breakdown
+    provider_counts = (
+        db.query(AIUsageLog.provider, func.count(AIUsageLog.id))
+        .group_by(AIUsageLog.provider)
+        .all()
+    )
+    provider_dist = {p: c for p, c in provider_counts}
+
+    # Status breakdown
+    status_counts = (
+        db.query(AIUsageLog.status, func.count(AIUsageLog.id))
+        .group_by(AIUsageLog.status)
+        .all()
+    )
+    status_dist = {s: c for s, c in status_counts}
+
+    # Confidence distribution from extracted_facts
+    high_conf = db.query(ExtractedFact).filter(ExtractedFact.confidence_score >= 85).count()
+    med_conf = db.query(ExtractedFact).filter(ExtractedFact.confidence_score >= 60, ExtractedFact.confidence_score < 85).count()
+    low_conf = db.query(ExtractedFact).filter(ExtractedFact.confidence_score < 60).count()
+
+    # Recent request entries
+    recent_logs = (
+        db.query(AIUsageLog)
+        .order_by(AIUsageLog.created_at.desc())
+        .limit(limit)
+        .all()
+    )
+
+    recent_entries = []
+    for log in recent_logs:
+        recent_entries.append({
+            "id": log.id,
+            "request_id": log.request_id,
+            "provider": log.provider,
+            "model_name": log.model_name,
+            "operation": log.operation,
+            "status": log.status,
+            "latency_ms": log.latency_ms,
+            "prompt_tokens": log.prompt_tokens,
+            "completion_tokens": log.completion_tokens,
+            "total_tokens": log.total_tokens,
+            "estimated_cost_usd": log.estimated_cost_usd,
+            "claims_count": log.claims_count,
+            "average_confidence": log.average_confidence,
+            "error_message": log.error_message,
+            "created_at": log.created_at
+        })
+
+    return {
+        "summary": {
+            "total_requests": total_requests,
+            "success_rate_percent": success_rate,
+            "average_latency_ms": round(float(avg_lat), 1),
+            "total_tokens": int(total_tokens),
+            "estimated_cost_usd": round(float(total_cost), 4),
+            "average_confidence": round(float(avg_conf), 1),
+            "provider": "google" if gemini_service.is_available() else "rule_fallback",
+            "active_model": settings.GEMINI_MODEL
+        },
+        "provider_distribution": provider_dist,
+        "status_distribution": status_dist,
+        "confidence_distribution": {
+            "high": high_conf,
+            "medium": med_conf,
+            "low": low_conf
+        },
+        "recent_requests": recent_entries
+    }
+
 

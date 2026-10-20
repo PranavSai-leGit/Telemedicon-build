@@ -1,4 +1,4 @@
-from pydantic import BaseModel
+from pydantic import BaseModel, ConfigDict
 from datetime import datetime
 from typing import List, Optional
 from app.schemas.document import DocumentResponse
@@ -20,8 +20,7 @@ class SharingGrantResponse(BaseModel):
     status: str
     documents: List[DocumentResponse] = []
 
-    class Config:
-        from_attributes = True
+    model_config = ConfigDict(from_attributes=True)
 
 class ClinicianPatientItem(BaseModel):
     patient_id: int

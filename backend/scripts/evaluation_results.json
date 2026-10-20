@@ -1,0 +1,52 @@
+{
+  "timestamp": "2026-10-19T14:48:19Z",
+  "fixtures_evaluated": 3,
+  "total_claims_extracted": 11,
+  "metrics": {
+    "medication_precision": 0.667,
+    "medication_recall": 0.4,
+    "medication_f1": 0.5,
+    "condition_precision": 1.0,
+    "condition_recall": 0.75,
+    "condition_f1": 0.857,
+    "lab_precision": 1.0,
+    "lab_recall": 0.5,
+    "lab_f1": 0.667,
+    "date_accuracy": 0.333,
+    "evidence_support_rate": 1.0,
+    "unsupported_claim_rate": 0.0,
+    "schema_validity_rate": 1.0,
+    "average_confidence_score": 87.2,
+    "average_latency_ms": 8683.8,
+    "estimated_cost_per_doc_usd": 0.0001
+  },
+  "per_document": [
+    {
+      "doc_id": "BM-001",
+      "title": "Type 2 Diabetes Prescription Follow-up",
+      "latency_ms": 8745.8,
+      "claims_extracted": 7,
+      "average_confidence": 85.4,
+      "mode": "fallback",
+      "model": "rule-based-fallback"
+    },
+    {
+      "doc_id": "BM-002",
+      "title": "Cardiology Discharge Summary",
+      "latency_ms": 8618.8,
+      "claims_extracted": 2,
+      "average_confidence": 87.0,
+      "mode": "fallback",
+      "model": "rule-based-fallback"
+    },
+    {
+      "doc_id": "BM-003",
+      "title": "Outpatient Laboratory Chemistry Report",
+      "latency_ms": 8686.9,
+      "claims_extracted": 2,
+      "average_confidence": 93.5,
+      "mode": "fallback",
+      "model": "rule-based-fallback"
+    }
+  ]
+}

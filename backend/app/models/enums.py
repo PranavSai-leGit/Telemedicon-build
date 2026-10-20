@@ -34,9 +34,21 @@ class ExtractionStatus(str, enum.Enum):
 
 class VerificationStatus(str, enum.Enum):
     UNVERIFIED = "unverified"
-    PATIENT_CONFIRMED = "patient_confirmed"
+    PENDING_VERIFICATION = "pending_verification"
+    VERIFIED_AGAINST_SOURCE = "verified_against_source"
     CLINICIAN_VERIFIED = "clinician_verified"
+    NEEDS_REVIEW = "needs_review"
+    CONTRADICTED_BY_SOURCE = "contradicted_by_source"
+    REJECTED = "rejected"
+    CORRECTED_BY_REVIEWER = "corrected_by_reviewer"
+    PATIENT_CONFIRMED = "patient_confirmed"
     DISPUTED = "disputed"
+
+class ConfidenceBand(str, enum.Enum):
+    HIGH = "High"
+    MEDIUM = "Medium"
+    LOW = "Low"
+    UNAVAILABLE = "Unavailable"
 
 class SharingStatus(str, enum.Enum):
     ACTIVE = "active"

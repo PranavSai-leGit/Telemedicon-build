@@ -3,7 +3,6 @@ import {
   FileCheck2,
   Download,
   Calendar,
-  Sparkles,
   Users,
   ShieldCheck,
   ChevronRight,
@@ -55,7 +54,7 @@ export const ClinicianHandoversPage: React.FC = () => {
           </p>
         </div>
         <div className="flex items-center space-x-2 text-xs bg-white/10 backdrop-blur-xs px-3.5 py-2 rounded-xl border border-white/20 text-white shrink-0 self-start md:self-auto">
-          <Sparkles className="w-4 h-4 text-emerald-300" />
+          <ShieldCheck className="w-4 h-4 text-teal-300" />
           <span>ReportLab Verified PDF Exports</span>
         </div>
       </div>

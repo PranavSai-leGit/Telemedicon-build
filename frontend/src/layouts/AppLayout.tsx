@@ -40,14 +40,14 @@ export const AppLayout: React.FC<AppLayoutProps> = ({ allowedRoles }) => {
   }
 
   return (
-    <div className="min-h-screen bg-slate-50 dark:bg-slate-950 text-slate-900 dark:text-slate-100 flex flex-col transition-colors">
+    <div className="min-h-screen bg-[#F5F8FB] dark:bg-[#0B1220] text-[#172B3A] dark:text-[#E7EEF5] flex flex-col transition-colors">
       <Navbar onMenuToggle={() => setMobileMenuOpen(!mobileMenuOpen)} />
 
-      {/* Synthetic Demonstration Notice Banner */}
-      <div className="w-full bg-amber-50 dark:bg-amber-950/40 border-b border-amber-200/60 dark:border-amber-900/40 px-4 py-1.5 text-center text-xs text-amber-800 dark:text-amber-300 font-medium flex items-center justify-center space-x-2">
-        <AlertCircle className="w-3.5 h-3.5 shrink-0" />
+      {/* Clinical Provenance & Privacy Boundary Strip */}
+      <div className="w-full bg-[#EDF3F7] dark:bg-[#162437] border-b border-[#D9E3EB] dark:border-[#2A3A4D] px-4 py-1 text-center text-xs text-[#536777] dark:text-[#91A3B5] font-medium flex items-center justify-center space-x-2">
+        <span className="w-1.5 h-1.5 rounded-full bg-[#0F766E] dark:bg-[#5EEAD4] shrink-0" />
         <span>
-          <strong>Hackathon Demonstration:</strong> All patient data, prescriptions, and lab tests shown are synthetic and for demonstration only.
+          <strong>Clinical Provenance Active:</strong> Medical events are linked to source documents. Extraction confidence reflects evidence validation, not autonomous diagnosis.
         </span>
       </div>
 

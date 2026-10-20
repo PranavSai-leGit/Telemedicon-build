@@ -9,6 +9,7 @@ from app.models.enums import (
     DiscrepancyType,
     DiscrepancyReviewStatus,
     AuditOutcome,
+    ConfidenceBand,
 )
 from app.models.user import User
 from app.models.session import SessionModel
@@ -18,6 +19,7 @@ from app.models.sharing import SharingGrant, SharingGrantDocument
 from app.models.discrepancy import Discrepancy
 from app.models.summary import Summary
 from app.models.audit import AuditEvent
+from app.models.ai_usage import AIUsageLog
 
 __all__ = [
     "UserRole",
@@ -26,6 +28,7 @@ __all__ = [
     "FactType",
     "ExtractionStatus",
     "VerificationStatus",
+    "ConfidenceBand",
     "SharingStatus",
     "DiscrepancyType",
     "DiscrepancyReviewStatus",
@@ -39,4 +42,5 @@ __all__ = [
     "Discrepancy",
     "Summary",
     "AuditEvent",
+    "AIUsageLog",
 ]

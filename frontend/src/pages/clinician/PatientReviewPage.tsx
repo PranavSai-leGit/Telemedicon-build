@@ -215,7 +215,11 @@ export const PatientReviewPage: React.FC = () => {
 
       {/* Tab: Medical Relationship Map */}
       {activeTab === 'map' && (
-        <MedicalRelationshipMap graphData={graphData} loading={graphLoading} />
+        <MedicalRelationshipMap
+          graphData={graphData}
+          loading={graphLoading}
+          onJumpToTimeline={(factId) => setActiveTab('timeline')}
+        />
       )}
 
       {/* Tab 1: Medication Reconciliation & Discrepancies */}

@@ -17,6 +17,10 @@ import {
   AdminDocumentItem,
   AdminHealthDetailed,
   AdminConfig,
+  AIStatusInfo,
+  FactConfidenceDetail,
+  VerificationQueueItem,
+  AIMonitoringMetrics,
 } from '../types';
 
 let cachedCsrfToken: string | null = null;
@@ -121,12 +125,27 @@ export const api = {
   deleteDocument: (id: number) => request<{ message: string }>(`/documents/${id}`, { method: 'DELETE' }),
 
   getDocumentFileUrl: (id: number) => `/api/documents/${id}/file`,
+  getDocumentViewUrl: (id: number) => `/api/documents/${id}/view`,
+
+  reprocessDocument: (id: number) =>
+    request<MedicalDocument>(`/documents/${id}/reprocess`, {
+      method: 'POST',
+    }),
+
+  getAIStatus: () => request<AIStatusInfo>('/documents/ai/status'),
+
+  configureAI: (geminiApiKey: string, geminiModel: string = 'gemini-3.8-flash') =>
+    request<AIStatusInfo>('/documents/ai/configure', {
+      method: 'POST',
+      body: JSON.stringify({ gemini_api_key: geminiApiKey, gemini_model: geminiModel }),
+    }),
 
   // Facts & Timeline
-  getTimelineFacts: (patientId?: number, factType?: string) => {
+  getTimelineFacts: (patientId?: number, factType?: string, documentId?: number) => {
     const params = new URLSearchParams();
     if (patientId) params.append('patient_id', patientId.toString());
     if (factType) params.append('fact_type', factType);
+    if (documentId) params.append('document_id', documentId.toString());
     const qs = params.toString() ? `?${params.toString()}` : '';
     return request<ExtractedFact[]>(`/facts${qs}`);
   },
@@ -143,6 +162,12 @@ export const api = {
     }),
 
   getFactEvidence: (factId: number) => request<any>(`/facts/${factId}/evidence`),
+  getFactConfidence: (factId: number) => request<FactConfidenceDetail>(`/facts/${factId}/confidence`),
+  verifyFactClinician: (factId: number, data: { verification_status?: string; reviewer_notes?: string; normalized_value?: string }) =>
+    request<ExtractedFact>(`/facts/${factId}/verify`, {
+      method: 'POST',
+      body: JSON.stringify(data),
+    }),
 
   // Sharing
   getClinicians: () => request<User[]>('/sharing/clinicians'),
@@ -192,9 +217,29 @@ export const api = {
   generateClinicianHandover: (patientId: number) =>
     request<SummaryResponseData>(`/clinician/patients/${patientId}/handover`, { method: 'POST' }),
   getHandoverPdfUrl: (patientId: number) => `/api/clinician/patients/${patientId}/handover/pdf`,
+  getClinicianVerificationQueue: (params?: { patient_id?: number; filter_type?: string; limit?: number }) => {
+    const q = new URLSearchParams();
+    if (params?.patient_id) q.append('patient_id', params.patient_id.toString());
+    if (params?.filter_type) q.append('filter_type', params.filter_type);
+    if (params?.limit) q.append('limit', params.limit.toString());
+    const qs = q.toString() ? `?${q.toString()}` : '';
+    return request<VerificationQueueItem[]>(`/clinician/verification-queue${qs}`);
+  },
+  resolveVerificationQueueItem: (factId: number, action: string, reviewerNotes?: string, correctedValue?: string) => {
+    const q = new URLSearchParams({ action });
+    if (reviewerNotes) q.append('reviewer_notes', reviewerNotes);
+    if (correctedValue) q.append('corrected_value', correctedValue);
+    return request<{ fact_id: number; verification_status: string; normalized_value: string; reviewer_notes?: string }>(
+      `/clinician/verification-queue/${factId}/resolve?${q.toString()}`,
+      { method: 'POST' }
+    );
+  },
+  getClinicianVerificationHistory: (limit = 50) =>
+    request<any[]>(`/clinician/verification-history?limit=${limit}`),
 
   // Admin
   getAdminStats: () => request<AdminStats>('/admin/stats'),
+  getAdminAIMonitoring: (limit = 50) => request<AIMonitoringMetrics>(`/admin/ai-monitoring?limit=${limit}`),
   getAdminUsers: (role?: string) => {
     const qs = role ? `?role=${role}` : '';
     return request<User[]>(`/admin/users${qs}`);

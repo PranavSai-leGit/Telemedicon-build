@@ -9,15 +9,16 @@ import {
   Calendar,
   Edit2,
   Search,
-  Sparkles,
   ShieldCheck,
   Share2,
   Network
 } from 'lucide-react';
 import { api } from '../../services/api';
-import { ExtractedFact, RelationshipGraphResponse } from '../../types';
+import { ExtractedFact, RelationshipGraphResponse, FactConfidenceDetail } from '../../types';
 import { EvidenceModal } from '../../components/EvidenceModal';
 import { MedicalRelationshipMap } from '../../components/MedicalRelationshipMap';
+import { ConfidenceBadge } from '../../components/ConfidenceBadge';
+import { ConfidenceInspectorModal } from '../../components/ConfidenceInspectorModal';
 
 export const TimelinePage: React.FC = () => {
   const [viewMode, setViewMode] = useState<'timeline' | 'map'>('timeline');
@@ -26,6 +27,7 @@ export const TimelinePage: React.FC = () => {
   const [filterType, setFilterType] = useState<string>('all');
   const [searchQuery, setSearchQuery] = useState('');
   const [evidenceData, setEvidenceData] = useState<any | null>(null);
+  const [confidenceDetail, setConfidenceDetail] = useState<FactConfidenceDetail | null>(null);
 
   // Graph state
   const [graphData, setGraphData] = useState<RelationshipGraphResponse | null>(null);
@@ -70,6 +72,15 @@ export const TimelinePage: React.FC = () => {
       setEvidenceData(ev);
     } catch (err) {
       console.error(err);
+    }
+  };
+
+  const handleInspectConfidence = async (factId: number) => {
+    try {
+      const detail = await api.getFactConfidence(factId);
+      setConfidenceDetail(detail);
+    } catch (err) {
+      console.error('Failed to load confidence detail:', err);
     }
   };
 
@@ -173,7 +184,13 @@ export const TimelinePage: React.FC = () => {
       </div>
 
       {viewMode === 'map' ? (
-        <MedicalRelationshipMap graphData={graphData} loading={graphLoading} />
+        <MedicalRelationshipMap
+          graphData={graphData}
+          loading={graphLoading}
+          onJumpToTimeline={(factId) => {
+            setViewMode('timeline');
+          }}
+        />
       ) : (
         <>
 
@@ -248,13 +265,19 @@ export const TimelinePage: React.FC = () => {
                   </h3>
                 </div>
 
-                <div className="flex items-center space-x-2">
+                <div className="flex flex-wrap items-center gap-2">
+                  <ConfidenceBadge
+                    score={fact.confidence_score}
+                    label={fact.confidence_label}
+                    onClick={() => handleInspectConfidence(fact.id)}
+                    compact={true}
+                  />
                   <span
                     className={`text-[10px] font-semibold px-2.5 py-0.5 rounded-full border capitalize ${getStatusBadge(
                       fact.verification_status || fact.extraction_status
                     )}`}
                   >
-                    {(fact.verification_status || fact.extraction_status).replace('_', ' ')}
+                    {(fact.verification_status || fact.extraction_status).replace(/_/g, ' ')}
                   </span>
                 </div>
               </div>
@@ -268,6 +291,27 @@ export const TimelinePage: React.FC = () => {
                 </div>
 
                 <div className="flex items-center space-x-2">
+                  <button
+                    onClick={() => {
+                      setViewMode('map');
+                      if (!graphData) fetchGraph();
+                    }}
+                    className="inline-flex items-center space-x-1 text-slate-500 hover:text-teal-600 dark:hover:text-teal-300 font-medium"
+                    title="View this event in the Medical Relationship Explorer"
+                  >
+                    <Network className="w-3.5 h-3.5 text-teal-600 dark:text-teal-400" />
+                    <span>In Explorer</span>
+                  </button>
+
+                  <button
+                    onClick={() => handleInspectConfidence(fact.id)}
+                    className="inline-flex items-center space-x-1 text-slate-500 hover:text-teal-600 dark:hover:text-teal-300 font-medium"
+                    title="Inspect 5-dimension confidence breakdown"
+                  >
+                    <ShieldCheck className="w-3.5 h-3.5 text-teal-600 dark:text-teal-400" />
+                    <span>Confidence</span>
+                  </button>
+
                   <button
                     onClick={() => {
                       setEditingFact(fact);
@@ -349,6 +393,13 @@ export const TimelinePage: React.FC = () => {
 
       {/* Ground-Truth Evidence Modal */}
       <EvidenceModal evidence={evidenceData} onClose={() => setEvidenceData(null)} />
+
+      {/* Transparent Confidence Scoring Inspector Modal */}
+      <ConfidenceInspectorModal
+        confidenceDetail={confidenceDetail}
+        isOpen={Boolean(confidenceDetail)}
+        onClose={() => setConfidenceDetail(null)}
+      />
     </div>
   );
 };

@@ -47,7 +47,13 @@ class Settings(BaseSettings):
         extra="ignore"
     )
 
-settings = Settings()
+    def model_post_init(self, __context):
+        # Guarantee STORAGE_DIR is always an absolute path
+        p = Path(self.STORAGE_DIR)
+        if not p.is_absolute():
+            self.STORAGE_DIR = str((BASE_DIR / p).resolve())
+        else:
+            self.STORAGE_DIR = str(p.resolve())
+        os.makedirs(self.STORAGE_DIR, exist_ok=True)
 
-# Ensure private uploads directory exists
-os.makedirs(settings.STORAGE_DIR, exist_ok=True)
+settings = Settings()

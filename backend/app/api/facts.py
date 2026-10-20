@@ -254,8 +254,169 @@ def get_fact_evidence(
         "source_document_name": doc.uploaded_filename,
         "source_page": fact.source_page or 1,
         "source_excerpt": fact.source_excerpt or "Source excerpt unavailable.",
+        "char_offset_start": fact.char_offset_start,
+        "char_offset_end": fact.char_offset_end,
         "sha256_hash": doc.sha256_hash,
         "uploaded_at": doc.uploaded_at,
         "extraction_status": fact.extraction_status,
-        "verification_status": fact.verification_status
+        "verification_status": fact.verification_status,
+        "confidence_score": fact.confidence_score,
+        "confidence_label": fact.confidence_label,
+        "confidence_breakdown": fact.confidence_breakdown,
+        "confidence_reasons": fact.confidence_reasons,
+        "confidence_version": fact.confidence_version,
+        "reviewer_notes": fact.reviewer_notes
     }
+
+@router.get("/{fact_id}/confidence")
+def get_fact_confidence(
+    fact_id: int,
+    current_user: User = Depends(require_clinician_or_patient),
+    db: Session = Depends(get_db)
+):
+    """
+    Get transparent, explainable extraction confidence score breakdown and rationale.
+    Distinguishes system-assessed confidence from model-reported confidence and clinical verification status.
+    """
+    fact = db.query(ExtractedFact).filter(ExtractedFact.id == fact_id).first()
+    if not fact:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Fact not found.")
+
+    if current_user.role == UserRole.PATIENT.value and fact.patient_id != current_user.id:
+        raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail="Access denied.")
+
+    doc = db.query(Document).filter(Document.id == fact.document_id).first()
+
+    # If confidence was not computed previously, evaluate now
+    score = fact.confidence_score
+    label = fact.confidence_label
+    breakdown = fact.confidence_breakdown
+    reasons = fact.confidence_reasons
+
+    if score is None:
+        from app.services.confidence_service import ConfidenceScoringService
+        eval_res = ConfidenceScoringService.evaluate_claim_confidence(
+            fact_type=fact.fact_type,
+            normalized_value=fact.normalized_value,
+            value_json=fact.value_json or {},
+            source_excerpt=fact.source_excerpt,
+            source_text=doc.extracted_text if doc else None,
+            source_page=fact.source_page,
+            document_date=str(doc.document_date) if doc and doc.document_date else None,
+            event_date=str(fact.event_date) if fact.event_date else None,
+            is_ocr=False
+        )
+        score = eval_res["score"]
+        label = eval_res["label"]
+        breakdown = eval_res["breakdown"]
+        reasons = eval_res["reasons"]
+
+    return {
+        "claim_id": fact.id,
+        "extracted_value": fact.normalized_value,
+        "entity_type": fact.fact_type,
+        "system_confidence": {
+            "score": score,
+            "label": label or "Medium",
+            "meaning": "Deterministic heuristic extraction-confidence score",
+            "calibrated": False,
+            "breakdown": breakdown or {
+                "evidence_grounding": 35,
+                "evidence_support": 20,
+                "schema_validity": 15,
+                "consistency": 15,
+                "source_quality": 5
+            },
+            "reasons": reasons or ["Claim grounded in source document evidence."]
+        },
+        "verification_status": fact.verification_status,
+        "model_reported_confidence": fact.model_reported_confidence,
+        "source_document_id": fact.document_id,
+        "source_document_name": doc.uploaded_filename if doc else None,
+        "source_page": fact.source_page or 1,
+        "source_excerpt": fact.source_excerpt,
+        "char_offset_start": fact.char_offset_start,
+        "char_offset_end": fact.char_offset_end,
+        "reviewer_notes": fact.reviewer_notes
+    }
+
+@router.post("/{fact_id}/verify", response_model=FactResponse)
+def verify_fact_clinician(
+    fact_id: int,
+    request: FactUpdate,
+    current_user: User = Depends(require_clinician_or_patient),
+    db: Session = Depends(get_db)
+):
+    """
+    Dedicated clinical verification endpoint.
+    Allows recording verified against source, needs review, rejected, or corrected by reviewer.
+    Preserves audit history and updates verification status.
+    """
+    fact = db.query(ExtractedFact).filter(ExtractedFact.id == fact_id).first()
+    if not fact:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Fact not found.")
+
+    if current_user.role == UserRole.PATIENT.value and fact.patient_id != current_user.id:
+        raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail="Access denied.")
+
+    if current_user.role == UserRole.CLINICIAN.value:
+        now = datetime.now(timezone.utc)
+        grant = (
+            db.query(SharingGrant)
+            .join(SharingGrantDocument, SharingGrant.id == SharingGrantDocument.sharing_grant_id)
+            .filter(
+                SharingGrant.patient_id == fact.patient_id,
+                SharingGrant.clinician_id == current_user.id,
+                SharingGrant.status == SharingStatus.ACTIVE.value,
+                SharingGrant.revoked_at.is_(None),
+                (SharingGrant.expires_at.is_(None) | (SharingGrant.expires_at > now)),
+                SharingGrantDocument.document_id == fact.document_id
+            )
+            .first()
+        )
+        if not grant:
+            raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail="No active clinical grant for this record.")
+
+    # Record previous value if changing value
+    if request.normalized_value and request.normalized_value != fact.normalized_value:
+        if not fact.original_extracted_value:
+            fact.original_extracted_value = fact.normalized_value
+        fact.normalized_value = request.normalized_value
+        fact.verification_status = VerificationStatus.CORRECTED_BY_REVIEWER.value
+    elif request.verification_status:
+        fact.verification_status = request.verification_status
+    else:
+        fact.verification_status = VerificationStatus.VERIFIED_AGAINST_SOURCE.value
+
+    if request.reviewer_notes:
+        fact.reviewer_notes = request.reviewer_notes
+
+    fact.extraction_status = ExtractionStatus.CLINICIAN_VERIFIED.value
+    fact.reviewed_by = current_user.id
+    fact.reviewed_at = datetime.now(timezone.utc)
+
+    db.commit()
+    db.refresh(fact)
+
+    doc = db.query(Document).filter(Document.id == fact.document_id).first()
+    resp = FactResponse.model_validate(fact)
+    if doc:
+        resp.document_name = doc.uploaded_filename
+        resp.document_type = doc.document_type
+
+    log_audit_event(
+        db,
+        action="FACT_VERIFICATION",
+        resource_type="extracted_fact",
+        resource_id=str(fact.id),
+        actor_user_id=current_user.id,
+        outcome="success",
+        details={
+            "verification_status": fact.verification_status,
+            "reviewer_notes": fact.reviewer_notes,
+            "corrected": bool(fact.original_extracted_value)
+        }
+    )
+
+    return resp
+

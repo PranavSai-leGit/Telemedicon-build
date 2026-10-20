@@ -136,4 +136,11 @@ def test_revoked_grant_denies_subsequent_access():
         assert res_after_revoke.status_code == 403
 
     finally:
+        try:
+            if 'temp_grant' in locals() and temp_grant:
+                db.query(SharingGrantDocument).filter(SharingGrantDocument.sharing_grant_id == temp_grant.id).delete()
+                db.query(SharingGrant).filter(SharingGrant.id == temp_grant.id).delete()
+                db.commit()
+        except Exception:
+            pass
         db.close()

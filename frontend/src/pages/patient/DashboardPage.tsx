@@ -7,7 +7,6 @@ import {
   Users,
   Upload,
   ArrowRight,
-  Sparkles,
   CheckCircle2,
   Calendar,
   ChevronRight,
@@ -75,31 +74,33 @@ export const DashboardPage: React.FC = () => {
 
   return (
     <div className="space-y-8 pb-12">
-      {/* Welcome Banner */}
-      <div className="p-6 rounded-2xl bg-gradient-to-r from-teal-600 to-emerald-600 text-white shadow-md shadow-teal-500/10 flex flex-col md:flex-row md:items-center justify-between gap-4">
+      {/* Welcome Banner - Clinical and Restrained */}
+      <div className="med-header-banner flex flex-col md:flex-row md:items-center justify-between gap-4">
         <div>
-          <span className="text-xs uppercase font-bold tracking-wider text-teal-100">Patient Health Portal</span>
-          <h1 className="text-2xl sm:text-3xl font-extrabold tracking-tight mt-1">
+          <span className="text-xs uppercase font-bold tracking-wider text-[#5EEAD4]">
+            Patient Health Workspace
+          </span>
+          <h1 className="text-2xl font-bold tracking-tight mt-1 text-white">
             Welcome back, {user?.full_name}
           </h1>
-          <p className="text-xs sm:text-sm text-teal-50 mt-1 max-w-xl">
-            Your connected medical records are unified across providers, indexed with ground-truth citations, and ready for your next consultation.
+          <p className="text-xs sm:text-sm text-[#E7EEF5]/90 mt-1 max-w-xl">
+            Medical history, connected to its evidence. All records are indexed with source citations and verified across providers.
           </p>
         </div>
-        <div className="flex items-center space-x-3">
+        <div className="flex items-center space-x-2">
           <Link
             to="/patient/records"
-            className="px-4 py-2.5 text-xs font-semibold bg-white text-teal-700 hover:bg-teal-50 rounded-xl shadow-xs transition-colors flex items-center space-x-2"
+            className="med-btn-accent text-xs"
           >
-            <Upload className="w-4 h-4" />
+            <Upload className="w-3.5 h-3.5" />
             <span>Upload Document</span>
           </Link>
           <Link
-            to="/patient/summary"
-            className="px-4 py-2.5 text-xs font-semibold bg-teal-700/60 hover:bg-teal-700/80 text-white rounded-xl border border-teal-400/40 transition-colors flex items-center space-x-2"
+            to="/patient/timeline"
+            className="med-btn-secondary text-xs"
           >
-            <Sparkles className="w-4 h-4" />
-            <span>AI Summary</span>
+            <Clock className="w-3.5 h-3.5" />
+            <span>Health Timeline</span>
           </Link>
         </div>
       </div>

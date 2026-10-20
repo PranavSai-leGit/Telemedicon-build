@@ -19,6 +19,7 @@ import { SharingPage } from './pages/patient/SharingPage';
 import { ClinicianDashboardPage } from './pages/clinician/ClinicianDashboardPage';
 import { PatientDirectoryPage } from './pages/clinician/PatientDirectoryPage';
 import { PatientReviewPage } from './pages/clinician/PatientReviewPage';
+import { ClinicianVerificationQueuePage } from './pages/clinician/ClinicianVerificationQueuePage';
 import { ClinicianDocumentsPage } from './pages/clinician/ClinicianDocumentsPage';
 import { ClinicianHandoversPage } from './pages/clinician/ClinicianHandoversPage';
 import { ClinicianDiscrepanciesPage } from './pages/clinician/ClinicianDiscrepanciesPage';
@@ -30,6 +31,7 @@ import { AdminUsersPage } from './pages/admin/AdminUsersPage';
 import { AdminCliniciansPage } from './pages/admin/AdminCliniciansPage';
 import { AdminPatientsPage } from './pages/admin/AdminPatientsPage';
 import { AdminProcessingPage } from './pages/admin/AdminProcessingPage';
+import { AdminAIMonitoringPage } from './pages/admin/AdminAIMonitoringPage';
 import { AdminAuditPage } from './pages/admin/AdminAuditPage';
 import { AdminConfigPage } from './pages/admin/AdminConfigPage';
 import { AdminHealthPage } from './pages/admin/AdminHealthPage';
@@ -70,6 +72,7 @@ export const App: React.FC = () => {
                 <Route path="/clinician/dashboard" element={<ClinicianDashboardPage />} />
                 <Route path="/clinician/patients" element={<PatientDirectoryPage />} />
                 <Route path="/clinician/patients/:patientId" element={<PatientReviewPage />} />
+                <Route path="/clinician/verification" element={<ClinicianVerificationQueuePage />} />
                 <Route path="/clinician/documents" element={<ClinicianDocumentsPage />} />
                 <Route path="/clinician/handovers" element={<ClinicianHandoversPage />} />
                 <Route path="/clinician/discrepancies" element={<ClinicianDiscrepanciesPage />} />
@@ -84,6 +87,7 @@ export const App: React.FC = () => {
                 <Route path="/admin/clinicians" element={<AdminCliniciansPage />} />
                 <Route path="/admin/patients" element={<AdminPatientsPage />} />
                 <Route path="/admin/processing" element={<AdminProcessingPage />} />
+                <Route path="/admin/ai-monitoring" element={<AdminAIMonitoringPage />} />
                 <Route path="/admin/audit" element={<AdminAuditPage />} />
                 <Route path="/admin/config" element={<AdminConfigPage />} />
                 <Route path="/admin/health" element={<AdminHealthPage />} />

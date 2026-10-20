@@ -1,7 +1,8 @@
 import React, { useState } from 'react';
 import { Link, useNavigate } from 'react-router-dom';
-import { Activity, Lock, Mail, User, Eye, EyeOff, AlertCircle, ArrowRight, ShieldCheck } from 'lucide-react';
+import { Lock, Mail, User, Eye, EyeOff, AlertCircle, ArrowRight, ShieldCheck } from 'lucide-react';
 import { useAuth } from '../../contexts/AuthContext';
+import { MediTaleLogo } from '../../components/MediTaleLogo';
 
 export const RegisterPage: React.FC = () => {
   const { register } = useAuth();
@@ -41,22 +42,17 @@ export const RegisterPage: React.FC = () => {
   };
 
   return (
-    <div className="min-h-screen bg-[#F5F9FA] dark:bg-[#0B1520] text-[#172B3A] dark:text-[#F0F6FA] flex flex-col justify-center py-12 sm:px-6 lg:px-8">
-      <div className="sm:mx-auto sm:w-full sm:max-w-md text-center">
-        <Link to="/" className="inline-flex items-center space-x-2.5">
-          <div className="w-10 h-10 rounded-xl bg-[#0F766E] flex items-center justify-center text-white shadow-xs">
-            <Activity className="w-6 h-6" />
-          </div>
-          <span className="font-bold text-2xl tracking-tight text-slate-900 dark:text-white">
-            Telemedicon <span className="text-sm font-normal text-slate-500">by MediTale</span>
-          </span>
+    <div className="min-h-screen bg-[#F5F8FB] dark:bg-[#0B1220] text-[#172B3A] dark:text-[#E7EEF5] flex flex-col justify-center py-12 sm:px-6 lg:px-8">
+      <div className="sm:mx-auto sm:w-full sm:max-w-md text-center flex flex-col items-center">
+        <Link to="/" className="inline-flex justify-center mb-2">
+          <MediTaleLogo variant="full" size="lg" showTagline={true} />
         </Link>
-        <h2 className="mt-4 text-2xl font-bold tracking-tight text-slate-900 dark:text-white">
+        <h2 className="mt-4 text-xl font-bold tracking-tight text-[#172B3A] dark:text-[#E7EEF5]">
           Create your patient account
         </h2>
-        <p className="mt-1 text-xs text-slate-500 dark:text-slate-400">
+        <p className="mt-1 text-xs text-[#536777] dark:text-[#91A3B5]">
           Already have an account?{' '}
-          <Link to="/login" className="font-medium text-teal-700 dark:text-teal-400 hover:underline">
+          <Link to="/login" className="font-semibold text-[#0F766E] dark:text-[#5EEAD4] hover:underline">
             Sign in
           </Link>
         </p>

@@ -1,4 +1,4 @@
-from sqlalchemy import Column, Integer, String, Text, DateTime, Date, ForeignKey
+from sqlalchemy import Column, Integer, Float, String, Text, DateTime, Date, ForeignKey
 from sqlalchemy.dialects.postgresql import JSONB
 from sqlalchemy.orm import relationship
 from datetime import datetime, timezone
@@ -22,6 +22,20 @@ class ExtractedFact(Base):
     verification_status = Column(String(50), nullable=False, default=VerificationStatus.UNVERIFIED.value)
     reviewed_by = Column(Integer, ForeignKey("users.id", ondelete="SET NULL"), nullable=True)
     reviewed_at = Column(DateTime(timezone=True), nullable=True)
+    reviewer_notes = Column(Text, nullable=True)
+    original_extracted_value = Column(String(255), nullable=True)
+
+    # Confidence and Provenance Fields
+    confidence_score = Column(Integer, nullable=True, index=True)
+    confidence_label = Column(String(20), nullable=True)
+    confidence_breakdown = Column(JSONB, nullable=True)
+    confidence_reasons = Column(JSONB, nullable=True)
+    confidence_version = Column(String(20), default="v1.0", nullable=True)
+    model_reported_confidence = Column(Float, nullable=True)
+    date_precision = Column(String(20), default="exact", nullable=True)
+    char_offset_start = Column(Integer, nullable=True)
+    char_offset_end = Column(Integer, nullable=True)
+
     created_at = Column(DateTime(timezone=True), default=lambda: datetime.now(timezone.utc), nullable=False)
 
     # Relationships

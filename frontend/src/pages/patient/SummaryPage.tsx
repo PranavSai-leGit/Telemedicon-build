@@ -1,8 +1,8 @@
 import React, { useState, useEffect } from 'react';
 import {
-  Sparkles,
   RefreshCw,
   FileText,
+  FileCheck2,
   AlertTriangle,
   CheckCircle2,
   AlertCircle,
@@ -84,9 +84,9 @@ export const SummaryPage: React.FC = () => {
           {generating ? (
             <RefreshCw className="w-4 h-4 animate-spin" />
           ) : (
-            <Sparkles className="w-4 h-4" />
+            <Cpu className="w-4 h-4" />
           )}
-          <span>{generating ? 'Synthesizing with Gemini...' : 'Generate New Summary'}</span>
+          <span>{generating ? 'Synthesizing with Clinical AI...' : 'Generate New Summary'}</span>
         </button>
       </div>
 
@@ -328,7 +328,7 @@ export const SummaryPage: React.FC = () => {
         </div>
       ) : (
         <div className="p-12 text-center bg-white dark:bg-slate-900 rounded-2xl border border-slate-200 dark:border-slate-800 space-y-4">
-          <Sparkles className="w-8 h-8 text-teal-600 mx-auto" />
+          <FileCheck2 className="w-8 h-8 text-teal-600 dark:text-teal-400 mx-auto" />
           <h3 className="text-base font-bold text-slate-900 dark:text-white">
             No Summary Generated Yet
           </h3>

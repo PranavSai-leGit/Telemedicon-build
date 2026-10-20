@@ -31,6 +31,14 @@ export interface MedicalDocument {
   extracted_data?: Record<string, any>;
   extracted_text?: string;
   facts_count?: number;
+  facts?: ExtractedFact[];
+}
+
+export interface AIStatusInfo {
+  ai_configured: boolean;
+  ai_mode: string;
+  ai_model: string;
+  message: string;
 }
 
 export interface ExtractedFact {
@@ -44,13 +52,123 @@ export interface ExtractedFact {
   value_json: Record<string, any>;
   unit?: string;
   event_date?: string;
+  date_precision?: string;
   source_page?: number;
   source_excerpt?: string;
-  extraction_status: 'extracted' | 'patient_corrected' | 'needs_review' | 'clinician_verified';
-  verification_status: 'unverified' | 'patient_confirmed' | 'clinician_verified' | 'disputed';
+  char_offset_start?: number;
+  char_offset_end?: number;
+  extraction_status: 'extracted' | 'patient_corrected' | 'needs_review' | 'clinician_verified' | string;
+  verification_status: 'unverified' | 'pending_verification' | 'verified_against_source' | 'clinician_verified' | 'needs_review' | 'contradicted_by_source' | 'rejected' | 'corrected_by_reviewer' | 'patient_confirmed' | 'disputed' | string;
+  confidence_score?: number;
+  confidence_label?: 'High' | 'Medium' | 'Low' | 'Unavailable' | string;
+  confidence_breakdown?: {
+    evidence_grounding: number;
+    evidence_support: number;
+    schema_validity: number;
+    consistency: number;
+    source_quality: number;
+  };
+  confidence_reasons?: string[];
+  confidence_version?: string;
+  model_reported_confidence?: number | null;
+  reviewer_notes?: string;
+  original_extracted_value?: string;
   reviewed_by?: number;
   reviewed_at?: string;
   created_at: string;
+}
+
+export interface FactConfidenceDetail {
+  claim_id: number;
+  extracted_value: string;
+  entity_type: string;
+  system_confidence: {
+    score: number;
+    label: string;
+    meaning: string;
+    calibrated: boolean;
+    breakdown: {
+      evidence_grounding: number;
+      evidence_support: number;
+      schema_validity: number;
+      consistency: number;
+      source_quality: number;
+    };
+    reasons: string[];
+  };
+  verification_status: string;
+  model_reported_confidence?: number | null;
+  source_document_id: number;
+  source_document_name?: string;
+  source_page?: number;
+  source_excerpt?: string;
+  char_offset_start?: number;
+  char_offset_end?: number;
+  reviewer_notes?: string;
+}
+
+export interface VerificationQueueItem {
+  fact_id: number;
+  patient_id: number;
+  patient_name: string;
+  document_id: number;
+  document_name: string;
+  fact_type: string;
+  normalized_value: string;
+  value_json: Record<string, any>;
+  unit?: string;
+  event_date?: string;
+  date_precision?: string;
+  source_page?: number;
+  source_excerpt?: string;
+  char_offset_start?: number;
+  char_offset_end?: number;
+  verification_status: string;
+  confidence_score?: number;
+  confidence_label?: string;
+  confidence_breakdown?: Record<string, number>;
+  confidence_reasons?: string[];
+  has_discrepancy: boolean;
+  reviewer_notes?: string;
+  original_extracted_value?: string;
+  reviewed_at?: string;
+}
+
+export interface AIMonitoringMetrics {
+  summary: {
+    total_requests: number;
+    success_rate_percent: number;
+    average_latency_ms: number;
+    total_tokens: number;
+    estimated_cost_usd: number;
+    average_confidence: number;
+    provider: string;
+    active_model: string;
+  };
+  provider_distribution: Record<string, number>;
+  status_distribution: Record<string, number>;
+  confidence_distribution: {
+    high: number;
+    medium: number;
+    low: number;
+  };
+  recent_requests: Array<{
+    id: number;
+    request_id: string;
+    provider: string;
+    model_name: string;
+    operation: string;
+    status: string;
+    latency_ms: number;
+    prompt_tokens?: number;
+    completion_tokens?: number;
+    total_tokens?: number;
+    estimated_cost_usd?: number;
+    claims_count: number;
+    average_confidence?: number;
+    error_message?: string;
+    created_at: string;
+  }>;
 }
 
 export interface Discrepancy {
@@ -184,6 +302,8 @@ export interface GraphNode {
   date?: string;
   details: Record<string, any>;
   verification_status: string;
+  confidence_score?: number;
+  confidence_label?: string;
   document_name?: string;
   document_id?: number;
   source_page?: number;
