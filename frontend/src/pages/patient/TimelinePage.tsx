@@ -19,6 +19,7 @@ import { EvidenceModal } from '../../components/EvidenceModal';
 import { MedicalRelationshipMap } from '../../components/MedicalRelationshipMap';
 import { ConfidenceBadge } from '../../components/ConfidenceBadge';
 import { ConfidenceInspectorModal } from '../../components/ConfidenceInspectorModal';
+import { Pagination } from '../../components/Pagination';
 
 export const TimelinePage: React.FC = () => {
   const [viewMode, setViewMode] = useState<'timeline' | 'map'>('timeline');
@@ -26,6 +27,8 @@ export const TimelinePage: React.FC = () => {
   const [loading, setLoading] = useState(true);
   const [filterType, setFilterType] = useState<string>('all');
   const [searchQuery, setSearchQuery] = useState('');
+  const [page, setPage] = useState(1);
+  const [pageSize, setPageSize] = useState(10);
   const [evidenceData, setEvidenceData] = useState<any | null>(null);
   const [confidenceDetail, setConfidenceDetail] = useState<FactConfidenceDetail | null>(null);
 
@@ -62,8 +65,13 @@ export const TimelinePage: React.FC = () => {
   };
 
   useEffect(() => {
+    setPage(1);
     fetchFacts();
   }, [filterType]);
+
+  useEffect(() => {
+    setPage(1);
+  }, [searchQuery]);
 
 
   const handleInspect = async (factId: number) => {
@@ -234,7 +242,9 @@ export const TimelinePage: React.FC = () => {
 
       {/* Vertical Timeline */}
       <div className="relative border-l-2 border-teal-200 dark:border-teal-900/60 ml-4 sm:ml-6 space-y-8 pl-6 sm:pl-8">
-        {filteredFacts.map((fact) => (
+        {filteredFacts
+          .slice((page - 1) * pageSize, page * pageSize)
+          .map((fact) => (
           <div key={fact.id} className="relative group">
             {/* Timeline Node Dot */}
             <div
@@ -343,6 +353,22 @@ export const TimelinePage: React.FC = () => {
           </div>
         )}
       </div>
+
+      {filteredFacts.length > 0 && (
+        <div className="pt-4">
+          <Pagination
+            currentPage={page}
+            pageSize={pageSize}
+            totalRecords={filteredFacts.length}
+            onPageChange={setPage}
+            onPageSizeChange={(sz) => {
+              setPageSize(sz);
+              setPage(1);
+            }}
+            pageSizeOptions={[10, 20, 50]}
+          />
+        </div>
+      )}
       </>
       )}
 

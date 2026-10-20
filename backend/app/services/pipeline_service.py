@@ -24,6 +24,7 @@ from app.services.gemini_service import gemini_service
 from app.services.confidence_service import ConfidenceScoringService
 from app.services.reconciliation import detect_medication_discrepancies
 from app.services.audit import log_audit_event
+from app.services.lab_normalizer import normalize_lab_test
 
 logger = logging.getLogger(__name__)
 
@@ -245,14 +246,41 @@ class DocumentProcessingPipeline:
                 "date_prec": event_date_prec if norm_event_date else doc_date_prec,
             })
 
-        # Lab Tests
+        # Lab Tests (Normalized against canonical medical lab catalogue)
         for lab in extraction_data.get("lab_tests", []):
-            lab_name = (lab.get("name") or "Lab Test").strip()
+            lab_raw_name = (lab.get("name") or "Lab Test").strip()
+            num_val = None
+            try:
+                if lab.get("value") is not None:
+                    num_val = float(lab.get("value"))
+            except (ValueError, TypeError):
+                pass
+
+            norm_res = normalize_lab_test(
+                raw_name=lab_raw_name,
+                value=num_val,
+                raw_unit=lab.get("unit"),
+                raw_reference_range=lab.get("reference_range")
+            )
+
+            lab_payload = dict(lab)
+            lab_payload.update({
+                "canonical_id": norm_res.canonical_id,
+                "canonical_name": norm_res.canonical_name,
+                "original_name": norm_res.original_name,
+                "abnormality_status": norm_res.abnormality_status,
+                "is_abnormal": norm_res.is_abnormal,
+                "specimen": norm_res.specimen,
+                "standard_unit": norm_res.standard_unit,
+                "reference_range": norm_res.reference_range
+            })
+
             candidate_items.append({
                 "fact_type": FactType.LAB_RESULT.value,
-                "normalized_value": lab_name,
-                "value_json": lab,
-                "unit": lab.get("unit"),
+                "normalized_value": norm_res.canonical_name,
+                "original_extracted_value": lab_raw_name,
+                "value_json": lab_payload,
+                "unit": norm_res.standard_unit or lab.get("unit"),
                 "source_page": lab.get("source_page", 1),
                 "source_excerpt": lab.get("source_excerpt"),
                 "date_str": event_date_str or doc_date_str,
@@ -305,6 +333,7 @@ class DocumentProcessingPipeline:
                 document_id=document_record.id,
                 fact_type=item["fact_type"],
                 normalized_value=item["normalized_value"],
+                original_extracted_value=item.get("original_extracted_value") or item["normalized_value"],
                 value_json=item["value_json"],
                 unit=item["unit"],
                 event_date=item["date_obj"],

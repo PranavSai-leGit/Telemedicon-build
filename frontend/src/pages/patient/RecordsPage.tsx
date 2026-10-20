@@ -19,6 +19,7 @@ import {
 import { api } from '../../services/api';
 import { MedicalDocument } from '../../types';
 import { DocumentViewerModal } from '../../components/DocumentViewerModal';
+import { Pagination } from '../../components/Pagination';
 
 export const RecordsPage: React.FC = () => {
   const [documents, setDocuments] = useState<MedicalDocument[]>([]);
@@ -28,6 +29,14 @@ export const RecordsPage: React.FC = () => {
   const [selectedType, setSelectedType] = useState('prescription');
   const [dragActive, setDragActive] = useState(false);
   const [message, setMessage] = useState<{ type: 'success' | 'error' | 'warning'; text: string } | null>(null);
+
+  // Pagination & Filtering state
+  const [page, setPage] = useState(1);
+  const [pageSize, setPageSize] = useState(10);
+  const [totalRecords, setTotalRecords] = useState(0);
+  const [totalPages, setTotalPages] = useState(1);
+  const [searchQuery, setSearchQuery] = useState('');
+  const [docTypeFilter, setDocTypeFilter] = useState('all');
 
   // AI & Viewer Modals
   const [aiConfigured, setAiConfigured] = useState(false);
@@ -46,15 +55,43 @@ export const RecordsPage: React.FC = () => {
   const fileInputRef = useRef<HTMLInputElement>(null);
 
   const fetchDocs = async () => {
+    setLoading(true);
     try {
-      const data = await api.getDocuments();
-      setDocuments(data);
+      const res: any = await api.getDocuments(undefined, {
+        page,
+        pageSize,
+        search: searchQuery || undefined,
+        documentType: docTypeFilter !== 'all' ? docTypeFilter : undefined,
+      });
+
+      if (res && res.pagination) {
+        setDocuments(res.items || []);
+        setTotalRecords(res.pagination.total_records || 0);
+        setTotalPages(res.pagination.total_pages || 1);
+      } else if (Array.isArray(res)) {
+        setDocuments(res);
+        setTotalRecords(res.length);
+        setTotalPages(Math.ceil(res.length / pageSize) || 1);
+      }
     } catch (err) {
       console.error(err);
     } finally {
       setLoading(false);
     }
   };
+
+  useEffect(() => {
+    fetchDocs();
+  }, [page, pageSize, docTypeFilter]);
+
+  // When search changes, reset page to 1
+  useEffect(() => {
+    const timer = setTimeout(() => {
+      setPage(1);
+      fetchDocs();
+    }, 300);
+    return () => clearTimeout(timer);
+  }, [searchQuery]);
 
   const fetchAIStatus = async () => {
     try {
@@ -330,19 +367,39 @@ export const RecordsPage: React.FC = () => {
       </div>
 
       {/* Uploaded Documents Table */}
-      <div className="p-6 rounded-2xl bg-white dark:bg-slate-900 border border-slate-200/80 dark:border-slate-800 shadow-xs">
-        <div className="flex items-center justify-between pb-4 border-b border-slate-100 dark:border-slate-800">
+      <div className="p-6 rounded-2xl bg-white dark:bg-slate-900 border border-slate-200/80 dark:border-slate-800 shadow-xs space-y-4">
+        <div className="flex flex-col sm:flex-row sm:items-center justify-between pb-4 border-b border-slate-100 dark:border-slate-800 gap-3">
           <div>
             <h3 className="font-bold text-base text-slate-900 dark:text-white">Uploaded Records Repository</h3>
-            <p className="text-xs text-slate-500 dark:text-slate-400">Total records: {documents.length}</p>
+            <p className="text-xs text-slate-500 dark:text-slate-400">Total records: {totalRecords}</p>
           </div>
-          <button
-            onClick={fetchDocs}
-            className="p-1.5 text-slate-400 hover:text-slate-600 dark:hover:text-slate-200 rounded-lg hover:bg-slate-100 dark:hover:bg-slate-800 transition-colors"
-            title="Refresh repository"
-          >
-            <RefreshCw className="w-4 h-4" />
-          </button>
+          <div className="flex flex-wrap items-center gap-2">
+            <input
+              type="text"
+              placeholder="Filter by filename..."
+              value={searchQuery}
+              onChange={(e) => setSearchQuery(e.target.value)}
+              className="text-xs px-3 py-1.5 bg-slate-50 dark:bg-slate-800 border border-slate-200 dark:border-slate-700 rounded-lg text-slate-800 dark:text-slate-200 placeholder-slate-400 focus:outline-none focus:ring-1 focus:ring-teal-500"
+            />
+            <select
+              value={docTypeFilter}
+              onChange={(e) => setDocTypeFilter(e.target.value)}
+              className="text-xs px-3 py-1.5 bg-slate-50 dark:bg-slate-800 border border-slate-200 dark:border-slate-700 rounded-lg text-slate-800 dark:text-slate-200 focus:outline-none focus:ring-1 focus:ring-teal-500 cursor-pointer"
+            >
+              <option value="all">All Classifications</option>
+              <option value="prescription">Prescription</option>
+              <option value="laboratory_report">Laboratory Report</option>
+              <option value="discharge_summary">Discharge Summary</option>
+              <option value="other">Other</option>
+            </select>
+            <button
+              onClick={fetchDocs}
+              className="p-1.5 text-slate-400 hover:text-slate-600 dark:hover:text-slate-200 rounded-lg hover:bg-slate-100 dark:hover:bg-slate-800 transition-colors"
+              title="Refresh repository"
+            >
+              <RefreshCw className="w-4 h-4" />
+            </button>
+          </div>
         </div>
 
         <div className="mt-4 overflow-x-auto">
@@ -479,6 +536,24 @@ export const RecordsPage: React.FC = () => {
             </tbody>
           </table>
         </div>
+
+        {totalRecords > 0 && (
+          <div className="pt-2">
+            <Pagination
+              currentPage={page}
+              pageSize={pageSize}
+              totalRecords={totalRecords}
+              totalPages={totalPages}
+              onPageChange={setPage}
+              onPageSizeChange={(newSize) => {
+                setPageSize(newSize);
+                setPage(1);
+              }}
+              pageSizeOptions={[10, 20, 50]}
+              loading={loading}
+            />
+          </div>
+        )}
       </div>
 
       {/* Document Inspector & Viewer Modal */}

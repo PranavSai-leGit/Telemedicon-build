@@ -74,7 +74,7 @@ class FactResponse(FactBase):
 class GraphNode(BaseModel):
     id: str
     label: str
-    type: str  # condition, medication, lab_result, allergy, document
+    type: str  # condition, medication, lab_result, allergy, document, vital
     category: str
     date: Optional[str] = None
     details: Dict[str, Any] = {}
@@ -85,16 +85,27 @@ class GraphNode(BaseModel):
     document_id: Optional[int] = None
     source_page: Optional[int] = None
     source_excerpt: Optional[str] = None
+    
+    # Clinical Prioritization & Normalization Metadata
+    is_active: bool = True
+    is_abnormal: bool = False
+    abnormality_status: Optional[str] = "unknown"
+    priority_score: int = 5
+    canonical_id: Optional[str] = None
 
 
 class GraphEdge(BaseModel):
     id: str
     source: str
     target: str
-    label: str  # "Prescribed for", "Monitored by", "Documented in", "Supersedes previous prescription", "Dosage mismatch"
-    relationship_type: str
-    status: str = "extracted"  # verified, patient_confirmed, extracted, flagged_discrepancy
+    label: str  # "Indicated for", "Prescribed for", "Monitored by", "Documented in", "Concurrent in regimen"
+    relationship_type: str  # treatment, biomarker_monitoring, provenance, discrepancy_transition, concurrent
+    relationship_nature: str = "explicit_documented"  # "explicit_documented" | "biomarker_monitoring" | "inferred"
+    status: str = "extracted"  # verified, patient_confirmed, extracted, flagged_discrepancy, inferred
     explanation: Optional[str] = None
+    source_document_name: Optional[str] = None
+    source_page: Optional[int] = None
+    source_excerpt: Optional[str] = None
 
 
 class RelationshipGraphResponse(BaseModel):
@@ -104,3 +115,36 @@ class RelationshipGraphResponse(BaseModel):
     edges: List[GraphEdge] = []
     node_counts: Dict[str, int] = {}
     edge_counts: Dict[str, int] = {}
+    overview_node_ids: List[str] = []  # Curated subset for initial clean overview
+
+
+class LabObservationPoint(BaseModel):
+    date: str
+    value: float
+    unit: str
+    abnormality_status: str  # low, normal, high, unknown
+    is_abnormal: bool
+    reference_range: str
+    original_test_name: str
+    source_document_name: Optional[str] = None
+    source_document_id: Optional[int] = None
+    source_page: Optional[int] = None
+    source_excerpt: Optional[str] = None
+    fact_id: int
+    verification_status: str
+
+
+class CanonicalLabTrendResponse(BaseModel):
+    canonical_id: str
+    test_name: str
+    category: str
+    unit: str
+    reference_range: str
+    latest_value: float
+    previous_value: Optional[float] = None
+    delta: Optional[float] = None
+    latest_date: str
+    latest_status: str  # low, normal, high, unknown
+    observation_count: int
+    data_points: List[LabObservationPoint] = []
+

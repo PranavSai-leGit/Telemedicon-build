@@ -87,40 +87,99 @@ def get_patient_lab_trends(
         .join(Document, ExtractedFact.document_id == Document.id)
         .filter(
             ExtractedFact.patient_id == patient_id,
-            ExtractedFact.fact_type == "lab_result",
+            ExtractedFact.fact_type.in_(["lab_result", "vital"]),
             ExtractedFact.document_id.in_(allowed_doc_ids)
         )
         .order_by(ExtractedFact.event_date.asc().nullslast(), ExtractedFact.created_at.asc())
         .all()
     )
 
-    # Organize by test name
-    trends = {}
-    for fact, doc_name in lab_facts:
-        test_name = fact.normalized_value
-        val_json = fact.value_json or {}
-        num_val = val_json.get("value")
-        if num_val is None:
-            continue
+    trends: Dict[str, Dict[str, Any]] = {}
+    seen_points = set()
 
-        if test_name not in trends:
-            trends[test_name] = {
-                "test_name": test_name,
-                "unit": fact.unit or val_json.get("unit", ""),
-                "reference_range": val_json.get("reference_range", "N/A"),
+    for fact, doc_name in lab_facts:
+        val_json = dict(fact.value_json or {})
+        num_val = val_json.get("numeric_value")
+        if num_val is None:
+            num_val = val_json.get("value")
+        if num_val is None:
+            try:
+                num_val = float(fact.normalized_value)
+            except (ValueError, TypeError):
+                continue
+        else:
+            try:
+                num_val = float(num_val)
+            except (ValueError, TypeError):
+                continue
+
+        canonical_id = val_json.get("canonical_id") or f"custom_{fact.normalized_value.lower().replace(' ', '_')}"
+        canonical_name = val_json.get("canonical_name") or fact.normalized_value
+        orig_test_name = val_json.get("original_test_name") or fact.original_extracted_value or fact.normalized_value
+        unit = val_json.get("standard_unit") or fact.unit or val_json.get("unit", "")
+        ref_range = val_json.get("reference_range", "N/A")
+        abnormality = val_json.get("abnormality_status", "unknown")
+        is_abnormal = bool(val_json.get("is_abnormal", abnormality in ("low", "high")))
+
+        date_str = fact.event_date.strftime("%Y-%m-%d") if fact.event_date else fact.created_at.strftime("%Y-%m-%d")
+
+        # Deduplication: prevent identical repeated report uploads from producing duplicate trend points
+        point_key = (canonical_id, fact.document_id, date_str, round(num_val, 4))
+        if point_key in seen_points:
+            continue
+        seen_points.add(point_key)
+
+        if canonical_id not in trends:
+            trends[canonical_id] = {
+                "canonical_id": canonical_id,
+                "test_name": canonical_name,
+                "category": val_json.get("category", "Laboratory"),
+                "unit": unit,
+                "reference_range": ref_range,
                 "data_points": []
             }
 
-        date_str = fact.event_date.strftime("%Y-%m-%d") if fact.event_date else fact.created_at.strftime("%Y-%m-%d")
-        trends[test_name]["data_points"].append({
+        trends[canonical_id]["data_points"].append({
             "date": date_str,
-            "value": float(num_val),
+            "value": round(num_val, 2),
+            "unit": unit,
+            "abnormality_status": abnormality,
+            "is_abnormal": is_abnormal,
+            "reference_range": ref_range,
+            "original_test_name": orig_test_name,
             "source_document_name": doc_name,
+            "source_document_id": fact.document_id,
+            "source_page": fact.source_page or 1,
+            "source_excerpt": fact.source_excerpt,
             "fact_id": fact.id,
             "verification_status": fact.verification_status
         })
 
-    return list(trends.values())
+    # Sort points chronologically and calculate deltas
+    results = []
+    for can_id, trend in trends.items():
+        trend["data_points"].sort(key=lambda p: p["date"])
+        pts = trend["data_points"]
+        obs_count = len(pts)
+        latest_pt = pts[-1]
+        prev_pt = pts[-2] if obs_count >= 2 else None
+
+        trend["latest_value"] = latest_pt["value"]
+        trend["latest_date"] = latest_pt["date"]
+        trend["latest_status"] = latest_pt["abnormality_status"]
+        trend["observation_count"] = obs_count
+
+        if prev_pt is not None:
+            trend["previous_value"] = prev_pt["value"]
+            trend["delta"] = round(latest_pt["value"] - prev_pt["value"], 2)
+        else:
+            trend["previous_value"] = None
+            trend["delta"] = None
+
+        results.append(trend)
+
+    results.sort(key=lambda t: (t.get("category", ""), t.get("test_name", "")))
+    return results
 
 @router.get("/patients/{patient_id}/discrepancies", response_model=List[DiscrepancyResponse])
 def get_patient_discrepancies(

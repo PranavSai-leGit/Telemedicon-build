@@ -99,9 +99,31 @@ export const api = {
   },
 
   // Documents
-  getDocuments: (patientId?: number) => {
-    const query = patientId ? `?patient_id=${patientId}` : '';
-    return request<MedicalDocument[]>(`/documents${query}`);
+  getDocuments: ((
+    patientId?: number,
+    options?: { page?: number; pageSize?: number; search?: string; documentType?: string }
+  ): Promise<any> => {
+    const params = new URLSearchParams();
+    if (patientId) params.append('patient_id', patientId.toString());
+    if (options?.page) params.append('page', options.page.toString());
+    if (options?.pageSize) params.append('page_size', options.pageSize.toString());
+    if (options?.search) params.append('search', options.search);
+    if (options?.documentType) params.append('document_type', options.documentType);
+    const qs = params.toString() ? `?${params.toString()}` : '';
+    if (options?.page) {
+      return request<{ items: MedicalDocument[]; pagination: any }>(`/documents${qs}`);
+    }
+    return request<MedicalDocument[]>(`/documents${qs}`);
+  }) as {
+    (patientId?: number): Promise<MedicalDocument[]>;
+    (
+      patientId: number | undefined,
+      options: { page: number; pageSize?: number; search?: string; documentType?: string }
+    ): Promise<{ items: MedicalDocument[]; pagination: any }>;
+    (
+      patientId?: number,
+      options?: { page?: number; pageSize?: number; search?: string; documentType?: string }
+    ): Promise<any>;
   },
 
   getDocument: (id: number) => request<MedicalDocument>(`/documents/${id}`),
@@ -141,13 +163,70 @@ export const api = {
     }),
 
   // Facts & Timeline
-  getTimelineFacts: (patientId?: number, factType?: string, documentId?: number) => {
+  getTimelineFacts: ((
+    patientId?: number,
+    factType?: string,
+    documentId?: number,
+    options?: {
+      verificationStatus?: string;
+      search?: string;
+      dateFrom?: string;
+      dateTo?: string;
+      page?: number;
+      pageSize?: number;
+    }
+  ): Promise<any> => {
     const params = new URLSearchParams();
     if (patientId) params.append('patient_id', patientId.toString());
-    if (factType) params.append('fact_type', factType);
+    if (factType && factType !== 'all') params.append('fact_type', factType);
     if (documentId) params.append('document_id', documentId.toString());
+    if (options?.verificationStatus && options.verificationStatus !== 'all') {
+      params.append('verification_status', options.verificationStatus);
+    }
+    if (options?.search) params.append('search', options.search);
+    if (options?.dateFrom) params.append('date_from', options.dateFrom);
+    if (options?.dateTo) params.append('date_to', options.dateTo);
+    if (options?.page) params.append('page', options.page.toString());
+    if (options?.pageSize) params.append('page_size', options.pageSize.toString());
+
     const qs = params.toString() ? `?${params.toString()}` : '';
+    if (options?.page) {
+      return request<{ items: ExtractedFact[]; pagination: any }>(`/facts${qs}`);
+    }
     return request<ExtractedFact[]>(`/facts${qs}`);
+  }) as {
+    (patientId?: number, factType?: string, documentId?: number): Promise<ExtractedFact[]>;
+    (
+      patientId: number | undefined,
+      factType: string | undefined,
+      documentId: number | undefined,
+      options: {
+        page: number;
+        pageSize?: number;
+        verificationStatus?: string;
+        search?: string;
+        dateFrom?: string;
+        dateTo?: string;
+      }
+    ): Promise<{ items: ExtractedFact[]; pagination: any }>;
+    (
+      patientId?: number,
+      factType?: string,
+      documentId?: number,
+      options?: {
+        page?: number;
+        pageSize?: number;
+        verificationStatus?: string;
+        search?: string;
+        dateFrom?: string;
+        dateTo?: string;
+      }
+    ): Promise<any>;
+  },
+
+  getCanonicalLabTrends: (patientId?: number) => {
+    const qs = patientId ? `?patient_id=${patientId}` : '';
+    return request<LabTrendSeries[]>(`/facts/labs/trends${qs}`);
   },
 
   getRelationshipGraph: (patientId?: number) => {

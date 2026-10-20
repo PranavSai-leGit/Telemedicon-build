@@ -65,11 +65,17 @@ def get_relationship_graph(
         allowed_document_ids=allowed_doc_ids
     )
 
-@router.get("", response_model=List[FactResponse])
+@router.get("")
 def get_timeline_facts(
     patient_id: Optional[int] = Query(None),
     fact_type: Optional[str] = Query(None),
     document_id: Optional[int] = Query(None),
+    verification_status: Optional[str] = Query(None),
+    search: Optional[str] = Query(None),
+    date_from: Optional[date] = Query(None),
+    date_to: Optional[date] = Query(None),
+    page: Optional[int] = Query(None, ge=1),
+    page_size: Optional[int] = Query(None, ge=1, le=100),
     current_user: User = Depends(require_clinician_or_patient),
     db: Session = Depends(get_db)
 ):
@@ -97,6 +103,18 @@ def get_timeline_facts(
         )
         allowed_ids = {d[0] for d in authorized_doc_ids}
         if not allowed_ids:
+            if page is not None:
+                return {
+                    "items": [],
+                    "pagination": {
+                        "page": page,
+                        "page_size": page_size or 20,
+                        "total_records": 0,
+                        "total_pages": 0,
+                        "has_previous": False,
+                        "has_next": False
+                    }
+                }
             return []
 
         query = (
@@ -115,14 +133,53 @@ def get_timeline_facts(
             .filter(ExtractedFact.patient_id == current_user.id)
         )
 
-    if fact_type:
+    if fact_type and fact_type != "all":
         query = query.filter(ExtractedFact.fact_type == fact_type)
     if document_id:
         query = query.filter(ExtractedFact.document_id == document_id)
+    if verification_status and verification_status != "all":
+        query = query.filter(ExtractedFact.verification_status == verification_status)
+    if date_from:
+        query = query.filter(ExtractedFact.event_date >= date_from)
+    if date_to:
+        query = query.filter(ExtractedFact.event_date <= date_to)
+    if search and search.strip():
+        term = f"%{search.strip()}%"
+        query = query.filter(
+            (ExtractedFact.normalized_value.ilike(term)) |
+            (ExtractedFact.original_extracted_value.ilike(term)) |
+            (ExtractedFact.source_excerpt.ilike(term))
+        )
 
-    # Order chronologically: event_date descending, then created_at descending
-    results = query.order_by(ExtractedFact.event_date.desc().nullslast(), ExtractedFact.created_at.desc()).all()
+    total_records = query.count()
+    query = query.order_by(ExtractedFact.event_date.desc().nullslast(), ExtractedFact.created_at.desc())
 
+    if page is not None:
+        p_size = page_size or 20
+        offset = (page - 1) * p_size
+        results = query.offset(offset).limit(p_size).all()
+        total_pages = max(1, (total_records + p_size - 1) // p_size) if total_records > 0 else 0
+
+        facts_resp = []
+        for fact, doc_name, doc_type in results:
+            f_resp = FactResponse.model_validate(fact)
+            f_resp.document_name = doc_name
+            f_resp.document_type = doc_type
+            facts_resp.append(f_resp)
+
+        return {
+            "items": facts_resp,
+            "pagination": {
+                "page": page,
+                "page_size": p_size,
+                "total_records": total_records,
+                "total_pages": total_pages,
+                "has_previous": page > 1,
+                "has_next": page < total_pages
+            }
+        }
+
+    results = query.all()
     facts_resp = []
     for fact, doc_name, doc_type in results:
         f_resp = FactResponse.model_validate(fact)
@@ -131,6 +188,143 @@ def get_timeline_facts(
         facts_resp.append(f_resp)
 
     return facts_resp
+
+
+@router.get("/labs/trends")
+def get_canonical_lab_trends(
+    patient_id: Optional[int] = Query(None),
+    current_user: User = Depends(require_clinician_or_patient),
+    db: Session = Depends(get_db)
+):
+    """
+    Retrieve unified, normalized laboratory trends across all authorized medical reports.
+    Equivalent tests (e.g. 'RBC' vs 'RBC Count') are grouped under their canonical identity.
+    """
+    target_patient_id = current_user.id
+    allowed_doc_ids = None
+
+    if current_user.role == UserRole.CLINICIAN.value:
+        if not patient_id:
+            raise HTTPException(
+                status_code=status.HTTP_400_BAD_REQUEST,
+                detail="Clinician must specify patient_id."
+            )
+        target_patient_id = patient_id
+        now = datetime.now(timezone.utc)
+        authorized_doc_ids = (
+            db.query(SharingGrantDocument.document_id)
+            .join(SharingGrant, SharingGrant.id == SharingGrantDocument.sharing_grant_id)
+            .filter(
+                SharingGrant.patient_id == patient_id,
+                SharingGrant.clinician_id == current_user.id,
+                SharingGrant.status == SharingStatus.ACTIVE.value,
+                SharingGrant.revoked_at.is_(None),
+                (SharingGrant.expires_at.is_(None) | (SharingGrant.expires_at > now))
+            )
+            .all()
+        )
+        allowed_doc_ids = {d[0] for d in authorized_doc_ids}
+        if not allowed_doc_ids:
+            return []
+
+    query = (
+        db.query(ExtractedFact, Document.uploaded_filename)
+        .join(Document, ExtractedFact.document_id == Document.id)
+        .filter(
+            ExtractedFact.patient_id == target_patient_id,
+            ExtractedFact.fact_type.in_(["lab_result", "vital"])
+        )
+    )
+    if allowed_doc_ids is not None:
+        query = query.filter(ExtractedFact.document_id.in_(allowed_doc_ids))
+
+    lab_facts = query.order_by(ExtractedFact.event_date.asc().nullslast(), ExtractedFact.created_at.asc()).all()
+
+    trends: Dict[str, Dict[str, Any]] = {}
+    seen_points = set()
+
+    for fact, doc_name in lab_facts:
+        val_json = dict(fact.value_json or {})
+        num_val = val_json.get("numeric_value")
+        if num_val is None:
+            num_val = val_json.get("value")
+        if num_val is None:
+            try:
+                num_val = float(fact.normalized_value)
+            except (ValueError, TypeError):
+                continue
+        else:
+            try:
+                num_val = float(num_val)
+            except (ValueError, TypeError):
+                continue
+
+        canonical_id = val_json.get("canonical_id") or f"custom_{fact.normalized_value.lower().replace(' ', '_')}"
+        canonical_name = val_json.get("canonical_name") or fact.normalized_value
+        orig_test_name = val_json.get("original_test_name") or fact.original_extracted_value or fact.normalized_value
+        unit = val_json.get("standard_unit") or fact.unit or val_json.get("unit", "")
+        ref_range = val_json.get("reference_range", "N/A")
+        abnormality = val_json.get("abnormality_status", "unknown")
+        is_abnormal = bool(val_json.get("is_abnormal", abnormality in ("low", "high")))
+
+        date_str = fact.event_date.strftime("%Y-%m-%d") if fact.event_date else fact.created_at.strftime("%Y-%m-%d")
+
+        # Deduplication: prevent identical repeated report uploads from producing duplicate points
+        point_key = (canonical_id, fact.document_id, date_str, round(num_val, 4))
+        if point_key in seen_points:
+            continue
+        seen_points.add(point_key)
+
+        if canonical_id not in trends:
+            trends[canonical_id] = {
+                "canonical_id": canonical_id,
+                "test_name": canonical_name,
+                "category": val_json.get("category", "Laboratory"),
+                "unit": unit,
+                "reference_range": ref_range,
+                "data_points": []
+            }
+
+        trends[canonical_id]["data_points"].append({
+            "date": date_str,
+            "value": round(num_val, 2),
+            "unit": unit,
+            "abnormality_status": abnormality,
+            "is_abnormal": is_abnormal,
+            "reference_range": ref_range,
+            "original_test_name": orig_test_name,
+            "source_document_name": doc_name,
+            "source_document_id": fact.document_id,
+            "source_page": fact.source_page or 1,
+            "source_excerpt": fact.source_excerpt,
+            "fact_id": fact.id,
+            "verification_status": fact.verification_status
+        })
+
+    results = []
+    for can_id, trend in trends.items():
+        trend["data_points"].sort(key=lambda p: p["date"])
+        pts = trend["data_points"]
+        obs_count = len(pts)
+        latest_pt = pts[-1]
+        prev_pt = pts[-2] if obs_count >= 2 else None
+
+        trend["latest_value"] = latest_pt["value"]
+        trend["latest_date"] = latest_pt["date"]
+        trend["latest_status"] = latest_pt["abnormality_status"]
+        trend["observation_count"] = obs_count
+
+        if prev_pt is not None:
+            trend["previous_value"] = prev_pt["value"]
+            trend["delta"] = round(latest_pt["value"] - prev_pt["value"], 2)
+        else:
+            trend["previous_value"] = None
+            trend["delta"] = None
+
+        results.append(trend)
+
+    results.sort(key=lambda t: (t.get("category", ""), t.get("test_name", "")))
+    return results
 
 @router.patch("/{fact_id}", response_model=FactResponse)
 def update_fact(

@@ -1,211 +1,157 @@
 import React, { useState, useEffect } from 'react';
-import {
-  LineChart,
-  Line,
-  XAxis,
-  YAxis,
-  CartesianGrid,
-  Tooltip,
-  ResponsiveContainer,
-  ReferenceLine
-} from 'recharts';
-import { Activity, Calendar, FileText, AlertCircle, Info, Eye } from 'lucide-react';
+import { Activity, RefreshCw, Info, Search, FlaskConical } from 'lucide-react';
 import { api } from '../../services/api';
-import { ExtractedFact } from '../../types';
-import { EvidenceModal } from '../../components/EvidenceModal';
-
-interface LabSeries {
-  testName: string;
-  unit: string;
-  referenceRange: string;
-  points: { date: string; value: number; factId: number; docName: string }[];
-}
+import { LabTrendSeries } from '../../types';
+import { LabTrendCard } from '../../components/LabTrendCard';
+import { DocumentViewerModal } from '../../components/DocumentViewerModal';
+import { MedicalDocument } from '../../types';
 
 export const LabsPage: React.FC = () => {
-  const [labFacts, setLabFacts] = useState<ExtractedFact[]>([]);
+  const [trends, setTrends] = useState<LabTrendSeries[]>([]);
   const [loading, setLoading] = useState(true);
-  const [selectedTest, setSelectedTest] = useState<string>('');
-  const [evidenceData, setEvidenceData] = useState<any | null>(null);
+  const [searchQuery, setSearchQuery] = useState('');
+  const [selectedCategory, setSelectedCategory] = useState<string>('all');
+  const [viewerDoc, setViewerDoc] = useState<MedicalDocument | null>(null);
 
-  useEffect(() => {
-    const fetchLabs = async () => {
-      try {
-        const data = await api.getTimelineFacts(undefined, 'lab_result');
-        setLabFacts(data);
-      } catch (err) {
-        console.error(err);
-      } finally {
-        setLoading(false);
-      }
-    };
-    fetchLabs();
-  }, []);
-
-  // Group facts by test name
-  const seriesMap: Record<string, LabSeries> = {};
-  labFacts.forEach((f) => {
-    const name = f.normalized_value;
-    const valJson = f.value_json || {};
-    const numVal = typeof valJson.value === 'number' ? valJson.value : parseFloat(valJson.value);
-    if (isNaN(numVal)) return;
-
-    if (!seriesMap[name]) {
-      seriesMap[name] = {
-        testName: name,
-        unit: f.unit || valJson.unit || '',
-        referenceRange: valJson.reference_range || 'N/A',
-        points: [],
-      };
-    }
-    seriesMap[name].points.push({
-      date: f.event_date || f.created_at.split('T')[0],
-      value: numVal,
-      factId: f.id,
-      docName: f.document_name || 'Lab Report',
-    });
-  });
-
-  const availableTests = Object.keys(seriesMap);
-
-  useEffect(() => {
-    if (availableTests.length > 0 && (!selectedTest || !seriesMap[selectedTest])) {
-      setSelectedTest(availableTests[0]);
-    }
-  }, [availableTests, selectedTest]);
-
-  const activeSeries = selectedTest ? seriesMap[selectedTest] : null;
-
-  const handleInspect = async (factId: number) => {
+  const fetchTrends = async () => {
+    setLoading(true);
     try {
-      const ev = await api.getFactEvidence(factId);
-      setEvidenceData(ev);
+      const data = await api.getCanonicalLabTrends();
+      setTrends(data);
     } catch (err) {
-      console.error(err);
+      console.error('Failed to fetch canonical lab trends:', err);
+    } finally {
+      setLoading(false);
     }
   };
 
+  useEffect(() => {
+    fetchTrends();
+  }, []);
+
+  const handleInspectDocument = async (docId: number) => {
+    try {
+      const doc = await api.getDocument(docId);
+      setViewerDoc(doc);
+    } catch (err) {
+      console.error('Failed to fetch document for inspection:', err);
+    }
+  };
+
+  // Categories
+  const categories = Array.from(new Set(trends.map((t) => t.category).filter(Boolean)));
+
+  // Filter trends
+  const filteredTrends = trends.filter((t) => {
+    if (selectedCategory !== 'all' && t.category !== selectedCategory) return false;
+    if (searchQuery) {
+      const q = searchQuery.toLowerCase();
+      const matchName = t.test_name.toLowerCase().includes(q);
+      const matchCat = t.category?.toLowerCase().includes(q);
+      const matchPoint = t.data_points.some((p) => p.original_test_name?.toLowerCase().includes(q));
+      if (!matchName && !matchCat && !matchPoint) return false;
+    }
+    return true;
+  });
+
   return (
-    <div className="space-y-8 pb-12">
+    <div className="space-y-6 pb-12 max-w-7xl mx-auto">
       {/* Header */}
-      <div>
-        <h1 className="text-2xl font-bold tracking-tight text-slate-900 dark:text-white">
-          Laboratory Biomarker Trends
-        </h1>
-        <p className="text-xs sm:text-sm text-slate-500 dark:text-slate-400 mt-1">
-          Interactive charts tracking recorded diagnostic values across multiple dates and clinical laboratories.
-        </p>
+      <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4 pb-2 border-b border-neutral-200/80 dark:border-neutral-800">
+        <div>
+          <div className="flex items-center gap-2">
+            <div className="w-8 h-8 rounded-lg bg-teal-50 dark:bg-teal-950/60 border border-teal-200/60 dark:border-teal-900/40 flex items-center justify-center text-teal-700 dark:text-teal-400">
+              <FlaskConical className="w-4 h-4" />
+            </div>
+            <h1 className="text-2xl font-bold tracking-tight text-neutral-900 dark:text-white">
+              Laboratory & Biomarker Trends
+            </h1>
+          </div>
+          <p className="text-xs sm:text-sm text-neutral-500 dark:text-neutral-400 mt-1">
+            Canonical laboratory measurements normalized and unified across all your uploaded medical reports.
+          </p>
+        </div>
+
+        <button
+          onClick={fetchTrends}
+          disabled={loading}
+          className="flex items-center gap-1.5 px-3 py-1.5 rounded-lg border border-neutral-200 dark:border-neutral-700 hover:bg-neutral-100 dark:hover:bg-neutral-800 text-xs font-medium text-neutral-700 dark:text-neutral-300 transition-colors self-start sm:self-auto"
+        >
+          <RefreshCw className={`w-3.5 h-3.5 ${loading ? 'animate-spin' : ''}`} />
+          <span>Refresh</span>
+        </button>
       </div>
 
-      {/* Test Selector Tabs */}
-      <div className="flex flex-wrap items-center gap-2">
-        {availableTests.map((tName) => (
-          <button
-            key={tName}
-            onClick={() => setSelectedTest(tName)}
-            className={`px-3.5 py-2 rounded-xl text-xs font-semibold transition-all ${selectedTest === tName
-                ? 'bg-teal-600 text-white shadow-xs'
-                : 'bg-white dark:bg-slate-900 border border-slate-200/80 dark:border-slate-800 text-slate-700 dark:text-slate-300 hover:bg-slate-50 dark:hover:bg-slate-800'
-              }`}
+      {/* Filter and Search Bar */}
+      <div className="flex flex-wrap items-center justify-between gap-3 text-xs bg-white dark:bg-neutral-900 p-3 rounded-xl border border-neutral-200/80 dark:border-neutral-800 shadow-xs">
+        <div className="relative flex-1 min-w-[200px] max-w-sm">
+          <Search className="w-3.5 h-3.5 absolute left-3 top-2.5 text-neutral-400" />
+          <input
+            type="text"
+            placeholder="Search canonical test name or original report alias..."
+            value={searchQuery}
+            onChange={(e) => setSearchQuery(e.target.value)}
+            className="w-full pl-8 pr-3 py-1.5 rounded-lg bg-neutral-50 dark:bg-neutral-800 border border-neutral-200 dark:border-neutral-700 text-xs text-neutral-800 dark:text-neutral-200 placeholder-neutral-400 focus:outline-none focus:ring-1 focus:ring-teal-500"
+          />
+        </div>
+
+        <div className="flex items-center gap-2">
+          <span className="text-neutral-500 dark:text-neutral-400 font-medium">Panel:</span>
+          <select
+            value={selectedCategory}
+            onChange={(e) => setSelectedCategory(e.target.value)}
+            className="bg-neutral-50 dark:bg-neutral-800 border border-neutral-200 dark:border-neutral-700 rounded-lg px-2.5 py-1.5 text-xs text-neutral-700 dark:text-neutral-300 focus:outline-none focus:ring-1 focus:ring-teal-500 cursor-pointer"
           >
-            {tName}
-          </button>
-        ))}
+            <option value="all">All Diagnostic Panels</option>
+            {categories.map((cat) => (
+              <option key={cat} value={cat}>
+                {cat}
+              </option>
+            ))}
+          </select>
+        </div>
       </div>
 
-      {/* Chart Card */}
-      {activeSeries ? (
-        <div className="p-6 rounded-2xl bg-white dark:bg-slate-900 border border-slate-200/80 dark:border-slate-800 shadow-xs space-y-6">
-          <div className="flex flex-col sm:flex-row sm:items-center justify-between pb-4 border-b border-slate-100 dark:border-slate-800 gap-2">
-            <div>
-              <span className="text-xs font-bold uppercase tracking-wider text-teal-600 dark:text-teal-400">
-                Diagnostic Trend Analysis
-              </span>
-              <h2 className="text-lg font-bold text-slate-900 dark:text-white mt-0.5">
-                {activeSeries.testName} ({activeSeries.unit})
-              </h2>
-            </div>
-            <div className="flex items-center space-x-3 text-xs">
-              <span className="px-3 py-1 rounded-lg bg-slate-50 dark:bg-slate-800 text-slate-600 dark:text-slate-300 font-medium">
-                Reference Range: <strong>{activeSeries.referenceRange}</strong>
-              </span>
-            </div>
-          </div>
-
-          {/* Recharts Chart Container */}
-          <div className="h-72 w-full pt-4">
-            <ResponsiveContainer width="100%" height="100%">
-              <LineChart data={activeSeries.points} margin={{ top: 10, right: 30, left: 0, bottom: 0 }}>
-                <CartesianGrid strokeDasharray="3 3" stroke="#94a3b8" opacity={0.2} />
-                <XAxis dataKey="date" stroke="#94a3b8" fontSize={11} tickLine={false} />
-                <YAxis stroke="#94a3b8" fontSize={11} tickLine={false} />
-                <Tooltip
-                  contentStyle={{
-                    backgroundColor: '#0f172a',
-                    borderColor: '#1e293b',
-                    borderRadius: '0.75rem',
-                    color: '#f8fafc',
-                    fontSize: '12px',
-                  }}
-                  formatter={(value: any) => [`${value} ${activeSeries.unit}`, activeSeries.testName]}
-                  labelFormatter={(label) => `Clinical Date: ${label}`}
-                />
-                <Line
-                  type="monotone"
-                  dataKey="value"
-                  stroke="#0d9488"
-                  strokeWidth={3}
-                  dot={{ r: 5, fill: '#0d9488', strokeWidth: 2, stroke: '#ffffff' }}
-                  activeDot={{ r: 7 }}
-                />
-              </LineChart>
-            </ResponsiveContainer>
-          </div>
-
-          {/* Data Points List */}
-          <div className="pt-4 border-t border-slate-100 dark:border-slate-800">
-            <h4 className="text-xs font-bold uppercase tracking-wider text-slate-400 mb-3">
-              Recorded Data Points & Reports
-            </h4>
-            <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-3">
-              {activeSeries.points.map((pt, idx) => (
-                <div
-                  key={idx}
-                  className="p-3 rounded-xl bg-slate-50 dark:bg-slate-800/40 border border-slate-100 dark:border-slate-800 flex items-center justify-between text-xs"
-                >
-                  <div>
-                    <span className="font-bold text-slate-900 dark:text-white">
-                      {pt.value} {activeSeries.unit}
-                    </span>
-                    <p className="text-[11px] text-slate-400 mt-0.5">{pt.date} • {pt.docName}</p>
-                  </div>
-                  <button
-                    onClick={() => handleInspect(pt.factId)}
-                    className="p-1.5 text-teal-600 dark:text-teal-400 hover:bg-teal-50 dark:hover:bg-teal-950/50 rounded-lg transition-colors"
-                    title="View source evidence"
-                  >
-                    <Eye className="w-4 h-4" />
-                  </button>
-                </div>
-              ))}
-            </div>
-          </div>
+      {/* Trends List */}
+      {loading ? (
+        <div className="py-24 flex flex-col items-center justify-center gap-3 text-neutral-500 dark:text-neutral-400">
+          <RefreshCw className="w-8 h-8 animate-spin text-teal-600" />
+          <p className="text-xs font-medium">Loading and unifying laboratory measurements...</p>
+        </div>
+      ) : filteredTrends.length > 0 ? (
+        <div className="space-y-6">
+          {filteredTrends.map((series, idx) => (
+            <LabTrendCard
+              key={series.canonical_id || idx}
+              series={series}
+              onInspectDocument={handleInspectDocument}
+            />
+          ))}
         </div>
       ) : (
-        <div className="p-8 text-center bg-white dark:bg-slate-900 rounded-2xl border border-slate-200 dark:border-slate-800 text-slate-400 text-xs">
-          No structured laboratory measurements found to chart yet.
+        <div className="p-12 text-center bg-white dark:bg-neutral-900 rounded-2xl border border-neutral-200/80 dark:border-neutral-800 text-neutral-400 text-xs space-y-2">
+          <Activity className="w-8 h-8 mx-auto text-neutral-400 opacity-40" />
+          <p>No laboratory measurement records match your search or filters.</p>
         </div>
       )}
 
-      {/* Non-diagnostic Disclaimer */}
+      {/* Clinical Disclaimer */}
       <div className="p-4 rounded-xl bg-teal-50/50 dark:bg-teal-950/30 border border-teal-200/60 dark:border-teal-900/40 flex items-start space-x-3 text-xs text-teal-800 dark:text-teal-300">
         <Info className="w-4 h-4 shrink-0 mt-0.5 text-teal-600 dark:text-teal-400" />
         <span>
-          <strong>Clinical Charting Notice:</strong> Laboratory trends display historical values extracted from your medical records. Charts are provided for clinical discussion and do not autonomously diagnose medical conditions.
+          <strong>Clinical Normalization Notice:</strong> Equivalent tests across multiple reports (such as "RBC" and "RBC Count") are unified under verified canonical identities to produce continuous chronological trend lines. Discrepant or incompatible assays remain safely segregated.
         </span>
       </div>
 
-      {/* Ground-Truth Evidence Modal */}
-      <EvidenceModal evidence={evidenceData} onClose={() => setEvidenceData(null)} />
+      {/* Document Viewer Modal */}
+      {viewerDoc && (
+        <DocumentViewerModal
+          document={viewerDoc}
+          isOpen={Boolean(viewerDoc)}
+          onClose={() => setViewerDoc(null)}
+          aiConfigured={true}
+        />
+      )}
     </div>
   );
 };

@@ -242,18 +242,48 @@ export interface ClinicianPatient {
   active_grants_count: number;
 }
 
+export interface PaginationMetadata {
+  page: number;
+  page_size: number;
+  total_records: number;
+  total_pages: number;
+  has_previous: boolean;
+  has_next: boolean;
+}
+
+export interface PaginatedResponse<T> {
+  items: T[];
+  pagination: PaginationMetadata;
+}
+
 export interface LabTrendPoint {
   date: string;
   value: number;
-  source_document_name: string;
+  unit?: string;
+  abnormality_status?: string;
+  is_abnormal?: boolean;
+  reference_range?: string;
+  original_test_name?: string;
+  source_document_name?: string;
+  source_document_id?: number;
+  source_page?: number;
+  source_excerpt?: string;
   fact_id: number;
   verification_status: string;
 }
 
 export interface LabTrendSeries {
+  canonical_id?: string;
   test_name: string;
+  category?: string;
   unit: string;
   reference_range: string;
+  latest_value?: number;
+  previous_value?: number | null;
+  delta?: number | null;
+  latest_date?: string;
+  latest_status?: string;
+  observation_count?: number;
   data_points: LabTrendPoint[];
 }
 
@@ -297,7 +327,7 @@ export interface AuditEventItem {
 export interface GraphNode {
   id: string;
   label: string;
-  type: string; // 'condition' | 'medication' | 'lab_result' | 'allergy' | 'document'
+  type: string; // 'condition' | 'medication' | 'lab_result' | 'allergy' | 'document' | 'vital'
   category: string;
   date?: string;
   details: Record<string, any>;
@@ -308,16 +338,27 @@ export interface GraphNode {
   document_id?: number;
   source_page?: number;
   source_excerpt?: string;
+
+  // Clinical Prioritization & Normalization Metadata
+  is_active?: boolean;
+  is_abnormal?: boolean;
+  abnormality_status?: string;
+  priority_score?: number;
+  canonical_id?: string;
 }
 
 export interface GraphEdge {
   id: string;
   source: string;
   target: string;
-  label: string; // 'Prescribed for' | 'Monitored by' | 'Documented in' | 'Supersedes previous prescription' | 'Dosage mismatch'
+  label: string; // 'Indicated for' | 'Prescribed for' | 'Monitored by' | 'Documented in' | 'Concurrent in regimen'
   relationship_type: string;
+  relationship_nature?: 'explicit_documented' | 'biomarker_monitoring' | 'inferred';
   status: string;
   explanation?: string;
+  source_document_name?: string;
+  source_page?: number;
+  source_excerpt?: string;
 }
 
 export interface RelationshipGraphResponse {
@@ -327,6 +368,7 @@ export interface RelationshipGraphResponse {
   edges: GraphEdge[];
   node_counts: Record<string, number>;
   edge_counts: Record<string, number>;
+  overview_node_ids?: string[];
 }
 
 // Clinician Portal Expanded Interfaces

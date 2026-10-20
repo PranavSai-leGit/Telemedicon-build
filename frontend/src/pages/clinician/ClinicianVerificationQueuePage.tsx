@@ -23,6 +23,7 @@ import { VerificationQueueItem, FactConfidenceDetail } from '../../types';
 import { ConfidenceBadge } from '../../components/ConfidenceBadge';
 import { ConfidenceInspectorModal } from '../../components/ConfidenceInspectorModal';
 import { EvidenceModal } from '../../components/EvidenceModal';
+import { Pagination } from '../../components/Pagination';
 
 export const ClinicianVerificationQueuePage: React.FC = () => {
   const [items, setItems] = useState<VerificationQueueItem[]>([]);
@@ -30,6 +31,8 @@ export const ClinicianVerificationQueuePage: React.FC = () => {
   const [refreshing, setRefreshing] = useState(false);
   const [filterTab, setFilterTab] = useState<'all' | 'needs_review' | 'low_conf' | 'discrepancy' | 'verified' | 'rejected'>('needs_review');
   const [searchQuery, setSearchQuery] = useState('');
+  const [queuePage, setQueuePage] = useState(1);
+  const [queuePageSize, setQueuePageSize] = useState(10);
   
   // Selected item for resolution
   const [selectedItem, setSelectedItem] = useState<VerificationQueueItem | null>(null);
@@ -375,7 +378,9 @@ export const ClinicianVerificationQueuePage: React.FC = () => {
                 </tr>
               </thead>
               <tbody className="divide-y divide-slate-100 dark:divide-slate-800">
-                {filteredItems.map((item) => (
+                {filteredItems
+                  .slice((queuePage - 1) * queuePageSize, queuePage * queuePageSize)
+                  .map((item) => (
                   <tr key={item.fact_id} className="hover:bg-slate-50/80 dark:hover:bg-slate-800/40 transition-colors">
                     <td className="py-3.5 px-4">
                       <div className="space-y-1">
@@ -489,6 +494,22 @@ export const ClinicianVerificationQueuePage: React.FC = () => {
                 ))}
               </tbody>
             </table>
+          </div>
+        )}
+
+        {filteredItems.length > 0 && (
+          <div className="p-4 border-t border-slate-100 dark:border-slate-800">
+            <Pagination
+              currentPage={queuePage}
+              pageSize={queuePageSize}
+              totalRecords={filteredItems.length}
+              onPageChange={setQueuePage}
+              onPageSizeChange={(sz) => {
+                setQueuePageSize(sz);
+                setQueuePage(1);
+              }}
+              pageSizeOptions={[10, 20, 50]}
+            />
           </div>
         )}
       </div>

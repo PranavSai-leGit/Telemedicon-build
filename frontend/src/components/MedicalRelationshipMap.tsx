@@ -20,60 +20,148 @@ import {
   GitBranch,
   Clock,
   Compass,
-  FileCheck,
   ChevronRight,
   Maximize2,
-  Check
+  Check,
+  TrendingUp,
+  X,
+  PlusCircle,
+  MinusCircle,
+  HelpCircle,
+  SlidersHorizontal,
+  FolderOpen
 } from 'lucide-react';
 import { GraphNode, GraphEdge, RelationshipGraphResponse, FactConfidenceDetail } from '../types';
 import { EvidenceModal } from './EvidenceModal';
 import { ConfidenceBadge } from './ConfidenceBadge';
 import { ConfidenceInspectorModal } from './ConfidenceInspectorModal';
+import { LabTrendModal } from './LabTrendModal';
+import { Pagination } from './Pagination';
 import { api } from '../services/api';
 
 interface MedicalRelationshipMapProps {
   graphData: RelationshipGraphResponse | null;
   loading?: boolean;
   onJumpToTimeline?: (factId: number) => void;
+  onInspectDocument?: (documentId: number) => void;
+  patientId?: number;
 }
 
-export type ExplorerViewMode = 'overview' | 'journey' | 'review' | 'evidence';
+export type ClinicalGraphViewMode =
+  | 'overview'
+  | 'condition_centered'
+  | 'medication_centered'
+  | 'lab_centered'
+  | 'timeline';
 
 export const MedicalRelationshipMap: React.FC<MedicalRelationshipMapProps> = ({
   graphData,
   loading = false,
   onJumpToTimeline,
+  onInspectDocument,
+  patientId,
 }) => {
-  // Navigation & View state
-  const [viewMode, setViewMode] = useState<ExplorerViewMode>('overview');
+  // Navigation & View Mode state
+  const [viewMode, setViewMode] = useState<ClinicalGraphViewMode>('overview');
   const [zoom, setZoom] = useState(1);
   const [pan, setPan] = useState({ x: 0, y: 0 });
   const [isDragging, setIsDragging] = useState(false);
   const [dragStart, setDragStart] = useState({ x: 0, y: 0 });
 
-  // Selection & Query state
+  // Node Selection & Expansion state
   const [selectedNodeId, setSelectedNodeId] = useState<string | null>(null);
   const [selectedEdgeId, setSelectedEdgeId] = useState<string | null>(null);
   const [hoveredNodeId, setHoveredNodeId] = useState<string | null>(null);
+  const [expandedNodeIds, setExpandedNodeIds] = useState<Set<string>>(new Set());
+
+  // Search & Filter state
   const [searchQuery, setSearchQuery] = useState('');
   const [filterType, setFilterType] = useState<string>('all');
-  const [filterStatus, setFilterStatus] = useState<string>('all');
+  const [statusFilter, setStatusFilter] = useState<'all' | 'active_only' | 'inactive_only'>('all');
+  const [abnormalityFilter, setAbnormalityFilter] = useState<'all' | 'abnormal_only' | 'normal_only'>('all');
+  const [verificationFilter, setVerificationFilter] = useState<'all' | 'verified' | 'unverified'>('all');
+  const [dateFrom, setDateFrom] = useState('');
+  const [dateTo, setDateTo] = useState('');
+
+  // Sidebar records list pagination
+  const [sidebarPage, setSidebarPage] = useState(1);
+  const sidebarPageSize = 8;
 
   // Modals state
   const [evidenceData, setEvidenceData] = useState<any | null>(null);
   const [confidenceDetail, setConfidenceDetail] = useState<FactConfidenceDetail | null>(null);
+  const [labTrendModalOpen, setLabTrendModalOpen] = useState(false);
+  const [trendModalTarget, setTrendModalTarget] = useState<{ canonicalId?: string; testName?: string }>({});
 
   const containerRef = useRef<HTMLDivElement>(null);
 
-  // Set default selection when graphData loads
+  // Default selection when graph loads
   useEffect(() => {
     if (graphData && graphData.nodes.length > 0 && !selectedNodeId) {
-      // Pick the first condition or first node
-      const firstCondition = graphData.nodes.find((n) => n.type === 'condition') || graphData.nodes[0];
-      setSelectedNodeId(firstCondition.id);
+      // Pick first active condition or first overview node
+      const firstCond = graphData.nodes.find((n) => n.type === 'condition' && n.is_active);
+      const initialId = firstCond?.id || graphData.overview_node_ids?.[0] || graphData.nodes[0].id;
+      setSelectedNodeId(initialId);
     }
   }, [graphData]);
 
+  // Reset pagination when search or filters change
+  useEffect(() => {
+    setSidebarPage(1);
+  }, [searchQuery, filterType, statusFilter, abnormalityFilter, verificationFilter, dateFrom, dateTo]);
+
+  // Mode change handler: auto-adapt focused entity
+  const handleViewModeChange = (mode: ClinicalGraphViewMode) => {
+    setViewMode(mode);
+    setExpandedNodeIds(new Set()); // reset lazy expansions to keep clean focus
+    setZoom(1);
+    setPan({ x: 0, y: 0 });
+
+    if (!graphData) return;
+
+    if (mode === 'condition_centered') {
+      const cond = graphData.nodes.find((n) => n.type === 'condition' && n.is_active) || graphData.nodes.find((n) => n.type === 'condition');
+      if (cond) setSelectedNodeId(cond.id);
+    } else if (mode === 'medication_centered') {
+      const med = graphData.nodes.find((n) => n.type === 'medication' && n.is_active) || graphData.nodes.find((n) => n.type === 'medication');
+      if (med) setSelectedNodeId(med.id);
+    } else if (mode === 'lab_centered') {
+      const lab = graphData.nodes.find((n) => (n.type === 'lab_result' || n.type === 'vital') && n.is_abnormal) || graphData.nodes.find((n) => n.type === 'lab_result');
+      if (lab) setSelectedNodeId(lab.id);
+    }
+  };
+
+  // Lazy expansion toggle for a node
+  const toggleExpandNode = (nodeId: string) => {
+    setExpandedNodeIds((prev) => {
+      const next = new Set(prev);
+      if (next.has(nodeId)) {
+        next.delete(nodeId);
+      } else {
+        next.add(nodeId);
+      }
+      return next;
+    });
+  };
+
+  // Reset view to default clinical overview
+  const handleResetView = () => {
+    setZoom(1);
+    setPan({ x: 0, y: 0 });
+    setExpandedNodeIds(new Set());
+    setSearchQuery('');
+    setFilterType('all');
+    setStatusFilter('all');
+    setAbnormalityFilter('all');
+    setVerificationFilter('all');
+    setDateFrom('');
+    setDateTo('');
+    if (graphData && graphData.overview_node_ids && graphData.overview_node_ids.length > 0) {
+      setSelectedNodeId(graphData.overview_node_ids[0]);
+    }
+  };
+
+  // Evidence and Confidence inspectors
   const handleInspectEvidence = async (node: GraphNode) => {
     if (!node.id.startsWith('fact-')) return;
     const factId = parseInt(node.id.replace('fact-', ''), 10);
@@ -96,15 +184,33 @@ export const MedicalRelationshipMap: React.FC<MedicalRelationshipMapProps> = ({
     }
   };
 
-  // Node Category Configuration with Official Color Tokens
-  const getNodeColorConfig = (type: string, isConflict = false) => {
+  const handleOpenLabTrend = (node: GraphNode) => {
+    setTrendModalTarget({
+      canonicalId: node.canonical_id,
+      testName: node.label,
+    });
+    setLabTrendModalOpen(true);
+  };
+
+  // Styling helper for Node types
+  const getNodeColorConfig = (type: string, isAbnormal = false, isConflict = false) => {
     if (isConflict) {
       return {
-        bg: 'bg-[#FFFBEB] dark:bg-[#451A03]/30',
-        border: 'border-[#FDE68A] dark:border-[#FCD34D]/40',
+        bg: 'bg-amber-50 dark:bg-amber-950/40',
+        border: 'border-amber-300 dark:border-amber-700',
         accent: '#D97706',
-        text: 'text-[#92400E] dark:text-[#FCD34D]',
+        text: 'text-amber-900 dark:text-amber-200',
         badge: 'med-badge-warning',
+        icon: AlertTriangle,
+      };
+    }
+    if (isAbnormal) {
+      return {
+        bg: 'bg-rose-50 dark:bg-rose-950/40',
+        border: 'border-rose-300 dark:border-rose-700',
+        accent: '#E11D48',
+        text: 'text-rose-900 dark:text-rose-200',
+        badge: 'med-badge-danger',
         icon: AlertTriangle,
       };
     }
@@ -112,923 +218,1029 @@ export const MedicalRelationshipMap: React.FC<MedicalRelationshipMapProps> = ({
     switch (type) {
       case 'condition':
         return {
-          bg: 'bg-[#EFF6FF] dark:bg-[#1E293B]',
-          border: 'border-[#BFDBFE] dark:border-[#3B82F6]/30',
+          bg: 'bg-blue-50 dark:bg-blue-950/40',
+          border: 'border-blue-200 dark:border-blue-800',
           accent: '#2563EB',
-          text: 'text-[#1E40AF] dark:text-[#93C5FD]',
+          text: 'text-blue-900 dark:text-blue-200',
           badge: 'med-badge-blue',
           icon: Activity,
         };
       case 'medication':
         return {
-          bg: 'bg-[#E4F3F0] dark:bg-[#123831]',
-          border: 'border-[#0F766E]/20 dark:border-[#5EEAD4]/30',
+          bg: 'bg-teal-50 dark:bg-teal-950/40',
+          border: 'border-teal-200 dark:border-teal-800',
           accent: '#0F766E',
-          text: 'text-[#0F766E] dark:text-[#5EEAD4]',
+          text: 'text-teal-900 dark:text-teal-200',
           badge: 'med-badge-teal',
           icon: Pill,
         };
       case 'lab_result':
+      case 'vital':
         return {
-          bg: 'bg-[#FFFBEB] dark:bg-[#451A03]/30',
-          border: 'border-[#FDE68A] dark:border-[#FCD34D]/40',
-          accent: '#D97706',
-          text: 'text-[#92400E] dark:text-[#FCD34D]',
-          badge: 'med-badge-warning',
+          bg: 'bg-emerald-50 dark:bg-emerald-950/40',
+          border: 'border-emerald-200 dark:border-emerald-800',
+          accent: '#059669',
+          text: 'text-emerald-900 dark:text-emerald-200',
+          badge: 'med-badge-green',
           icon: FlaskConical,
         };
       case 'document':
         return {
-          bg: 'bg-[#F5F3FF] dark:bg-[#2E1065]/30',
-          border: 'border-[#DDD6FE] dark:border-[#7C3AED]/30',
+          bg: 'bg-purple-50 dark:bg-purple-950/40',
+          border: 'border-purple-200 dark:border-purple-800',
           accent: '#7C3AED',
-          text: 'text-[#6D28D9] dark:text-[#C4B5FD]',
+          text: 'text-purple-900 dark:text-purple-200',
           badge: 'med-badge-neutral',
           icon: FileText,
         };
       default:
         return {
-          bg: 'bg-[#F1F5F9] dark:bg-[#1E293B]',
-          border: 'border-[#CBD5E1] dark:border-[#475569]',
-          accent: '#475569',
-          text: 'text-[#334155] dark:text-[#CBD5E1]',
+          bg: 'bg-neutral-50 dark:bg-neutral-900',
+          border: 'border-neutral-200 dark:border-neutral-800',
+          accent: '#64748B',
+          text: 'text-neutral-800 dark:text-neutral-200',
           badge: 'med-badge-neutral',
           icon: Layers,
         };
     }
   };
 
-  // Filtered dataset based on viewMode & user selections
+  // Main computation for visible nodes, layout positions, and connectivity
   const {
-    filteredNodes,
-    filteredEdges,
+    visibleNodes,
+    visibleEdges,
     nodePositions,
     connectedNodeIds,
     connectedEdgeIds,
-    conflictNodes,
-    medicationJourneyList
+    allFilteredNodes,
+    paginatedSidebarNodes,
+    totalSidebarRecords,
   } = useMemo(() => {
     if (!graphData || !graphData.nodes.length) {
       return {
-        filteredNodes: [],
-        filteredEdges: [],
+        visibleNodes: [],
+        visibleEdges: [],
         nodePositions: new Map<string, { x: number; y: number }>(),
         connectedNodeIds: new Set<string>(),
         connectedEdgeIds: new Set<string>(),
-        conflictNodes: [],
-        medicationJourneyList: []
+        allFilteredNodes: [],
+        paginatedSidebarNodes: [],
+        totalSidebarRecords: 0,
       };
     }
 
-    // 1. Identify conflicts (discrepancy edges or low confidence)
-    const conflictEdges = graphData.edges.filter(
-      (e) => e.relationship_type === 'discrepancy' || e.label.toLowerCase().includes('mismatch') || e.label.toLowerCase().includes('conflict')
-    );
-    const conflictIdSet = new Set<string>();
-    conflictEdges.forEach((e) => {
-      conflictIdSet.add(e.source);
-      conflictIdSet.add(e.target);
-    });
+    // 1. Filter ALL nodes based on user search and filters (for the sidebar matching records list)
+    const filteredNodes = graphData.nodes.filter((node) => {
+      // Search query
+      if (searchQuery) {
+        const q = searchQuery.toLowerCase();
+        const matchLabel = node.label.toLowerCase().includes(q);
+        const matchCat = node.category.toLowerCase().includes(q);
+        const matchDoc = node.document_name?.toLowerCase().includes(q);
+        const matchVal = JSON.stringify(node.details).toLowerCase().includes(q);
+        if (!matchLabel && !matchCat && !matchDoc && !matchVal) return false;
+      }
 
-    const cNodes = graphData.nodes.filter(
-      (n) => conflictIdSet.has(n.id) || (n.confidence_score !== undefined && n.confidence_score < 60)
-    );
-
-    // 2. Filter nodes based on viewMode and search
-    let activeNodes = graphData.nodes.filter((node) => {
-      // Search matching
-      const matchesSearch =
-        !searchQuery ||
-        node.label.toLowerCase().includes(searchQuery.toLowerCase()) ||
-        node.category.toLowerCase().includes(searchQuery.toLowerCase()) ||
-        (node.document_name && node.document_name.toLowerCase().includes(searchQuery.toLowerCase()));
-
-      // Category filter
-      const matchesType = filterType === 'all' || node.type === filterType;
+      // Type filter
+      if (filterType !== 'all' && node.type !== filterType) {
+        return false;
+      }
 
       // Status filter
-      const matchesStatus =
-        filterStatus === 'all' ||
-        (filterStatus === 'conflict' && (conflictIdSet.has(node.id) || (node.confidence_score !== undefined && node.confidence_score < 60))) ||
-        (filterStatus === 'verified' && node.verification_status === 'verified') ||
-        (filterStatus === 'unverified' && node.verification_status !== 'verified');
+      if (statusFilter === 'active_only' && !node.is_active) return false;
+      if (statusFilter === 'inactive_only' && node.is_active) return false;
 
-      return matchesSearch && matchesType && matchesStatus;
+      // Abnormality filter
+      if (abnormalityFilter === 'abnormal_only' && !node.is_abnormal) return false;
+      if (abnormalityFilter === 'normal_only' && node.is_abnormal) return false;
+
+      // Verification filter
+      if (verificationFilter === 'verified' && node.verification_status !== 'clinician_verified' && node.verification_status !== 'verified') return false;
+      if (verificationFilter === 'unverified' && (node.verification_status === 'clinician_verified' || node.verification_status === 'verified')) return false;
+
+      // Date range filter
+      if (dateFrom && node.date && node.date < dateFrom) return false;
+      if (dateTo && node.date && node.date > dateTo) return false;
+
+      return true;
     });
 
-    // In Mode D (Evidence Connections), only include facts and documents
-    if (viewMode === 'evidence') {
-      activeNodes = activeNodes.filter((n) => n.type === 'document' || n.type === 'condition' || n.type === 'medication');
+    // 2. Determine VISIBLE graph nodes based on active view mode and lazy expansion
+    let targetVisibleIds = new Set<string>();
+
+    if (viewMode === 'overview') {
+      // Clean Clinical Overview: display curated high-priority subset
+      const overviewBase = graphData.overview_node_ids && graphData.overview_node_ids.length > 0
+        ? graphData.overview_node_ids
+        : graphData.nodes.slice(0, 8).map((n) => n.id);
+      overviewBase.forEach((id) => targetVisibleIds.add(id));
+
+      // Always include selected node if any
+      if (selectedNodeId) targetVisibleIds.add(selectedNodeId);
+
+      // Include user-expanded nodes and their 1-hop connections
+      expandedNodeIds.forEach((expId) => {
+        targetVisibleIds.add(expId);
+        graphData.edges.forEach((e) => {
+          if (e.source === expId) targetVisibleIds.add(e.target);
+          if (e.target === expId) targetVisibleIds.add(e.source);
+        });
+      });
+    } else if (viewMode === 'condition_centered') {
+      // Condition-Centered: focus condition + related meds, monitoring labs, source docs
+      if (selectedNodeId) {
+        targetVisibleIds.add(selectedNodeId);
+        graphData.edges.forEach((e) => {
+          if (e.source === selectedNodeId) targetVisibleIds.add(e.target);
+          if (e.target === selectedNodeId) targetVisibleIds.add(e.source);
+        });
+      }
+      // Also show other conditions in a compact picker column
+      graphData.nodes.filter((n) => n.type === 'condition').forEach((n) => targetVisibleIds.add(n.id));
+    } else if (viewMode === 'medication_centered') {
+      // Medication-Centered: focus medication + indicated conditions, monitoring labs, source docs
+      if (selectedNodeId) {
+        targetVisibleIds.add(selectedNodeId);
+        graphData.edges.forEach((e) => {
+          if (e.source === selectedNodeId) targetVisibleIds.add(e.target);
+          if (e.target === selectedNodeId) targetVisibleIds.add(e.source);
+        });
+      }
+      // Also show other medications in a compact picker column
+      graphData.nodes.filter((n) => n.type === 'medication').forEach((n) => targetVisibleIds.add(n.id));
+    } else if (viewMode === 'lab_centered') {
+      // Laboratory-Centered: focus lab + monitored conditions, supporting docs
+      if (selectedNodeId) {
+        targetVisibleIds.add(selectedNodeId);
+        graphData.edges.forEach((e) => {
+          if (e.source === selectedNodeId) targetVisibleIds.add(e.target);
+          if (e.target === selectedNodeId) targetVisibleIds.add(e.source);
+        });
+      }
+      // Also show other labs in a compact picker column
+      graphData.nodes.filter((n) => n.type === 'lab_result' || n.type === 'vital').forEach((n) => targetVisibleIds.add(n.id));
+    } else if (viewMode === 'timeline') {
+      // Timeline View: sort entities chronologically and show progression
+      filteredNodes
+        .filter((n) => n.date && n.type !== 'document')
+        .slice(0, 16)
+        .forEach((n) => targetVisibleIds.add(n.id));
+      if (selectedNodeId) targetVisibleIds.add(selectedNodeId);
     }
 
-    const activeNodeIdSet = new Set(activeNodes.map((n) => n.id));
+    // Filter by user search if present
+    if (searchQuery) {
+      filteredNodes.forEach((n) => targetVisibleIds.add(n.id));
+    }
 
-    // Filter edges between active nodes
-    const activeEdges = graphData.edges.filter(
-      (edge) => activeNodeIdSet.has(edge.source) && activeNodeIdSet.has(edge.target)
+    // Filter visible nodes
+    const visNodes = graphData.nodes.filter((n) => targetVisibleIds.has(n.id));
+    const visNodeIdSet = new Set(visNodes.map((n) => n.id));
+
+    // Visible edges (only connect visible nodes)
+    const visEdges = graphData.edges.filter(
+      (e) => visNodeIdSet.has(e.source) && visNodeIdSet.has(e.target)
     );
 
-    // Compute connectivity map for the active selection
+    // Compute connectivity map for the currently selected node
     const connNodeIds = new Set<string>();
     const connEdgeIds = new Set<string>();
 
     if (selectedNodeId) {
       connNodeIds.add(selectedNodeId);
-      activeEdges.forEach((edge) => {
-        if (edge.source === selectedNodeId) {
-          connNodeIds.add(edge.target);
-          connEdgeIds.add(edge.id);
-        } else if (edge.target === selectedNodeId) {
-          connNodeIds.add(edge.source);
-          connEdgeIds.add(edge.id);
+      visEdges.forEach((e) => {
+        if (e.source === selectedNodeId) {
+          connNodeIds.add(e.target);
+          connEdgeIds.add(e.id);
+        } else if (e.target === selectedNodeId) {
+          connNodeIds.add(e.source);
+          connEdgeIds.add(e.id);
         }
       });
     }
 
-    // Positions: Layout into functional tiers (Conditions on Left, Medications/Labs in Center, Documents on Right)
+    // 3. Coordinate Layout Calculation (Clean radial & tiered layouts)
     const positions = new Map<string, { x: number; y: number }>();
-    const conditions = activeNodes.filter((n) => n.type === 'condition');
-    const medications = activeNodes.filter((n) => n.type === 'medication' || n.type === 'allergy');
-    const labs = activeNodes.filter((n) => n.type === 'lab_result');
-    const docs = activeNodes.filter((n) => n.type === 'document');
-    const others = activeNodes.filter((n) => !['condition', 'medication', 'allergy', 'lab_result', 'document'].includes(n.type));
 
-    const assignColumn = (items: GraphNode[], xCol: number, yStart = 60, yGap = 110) => {
-      items.forEach((item, index) => {
-        positions.set(item.id, {
-          x: xCol,
-          y: yStart + index * yGap,
-        });
+    if (viewMode === 'timeline') {
+      // Horizontal Timeline Layout: chronological from left to right
+      const sorted = [...visNodes].sort((a, b) => (a.date || '').localeCompare(b.date || ''));
+      sorted.forEach((node, idx) => {
+        const x = 120 + idx * 240;
+        const y = 280 + (idx % 2 === 0 ? -90 : 90);
+        positions.set(node.id, { x, y });
       });
-    };
+    } else if (viewMode === 'condition_centered' || viewMode === 'medication_centered' || viewMode === 'lab_centered') {
+      // Focused Radial Layout: Selected entity in center, connected neighbors orbiting neatly
+      const centerNode = visNodes.find((n) => n.id === selectedNodeId);
+      const centerX = 500;
+      const centerY = 340;
 
-    assignColumn(conditions, 60, 60, 110);
-    assignColumn(medications, 340, 60, 110);
-    assignColumn(labs, 620, 60, 110);
-    assignColumn(docs, 900, 60, 110);
-    assignColumn(others, 1160, 60, 110);
+      if (centerNode) {
+        positions.set(centerNode.id, { x: centerX, y: centerY });
+      }
 
-    // 3. Medication Journey list (chronologically sorted medications with dosage changes)
-    const medList = graphData.nodes
-      .filter((n) => n.type === 'medication')
-      .sort((a, b) => (a.date || '').localeCompare(b.date || ''));
+      // Separate connected neighbors from other category nodes
+      const neighbors = visNodes.filter((n) => n.id !== selectedNodeId && connNodeIds.has(n.id));
+      const others = visNodes.filter((n) => n.id !== selectedNodeId && !connNodeIds.has(n.id));
+
+      // Orbit neighbors
+      const radius = 230;
+      const angleStep = neighbors.length > 0 ? (2 * Math.PI) / neighbors.length : 0;
+      neighbors.forEach((node, idx) => {
+        const angle = idx * angleStep - Math.PI / 2;
+        const x = centerX + radius * Math.cos(angle);
+        const y = centerY + radius * Math.sin(angle);
+        positions.set(node.id, { x, y });
+      });
+
+      // Place others in a quiet secondary column on the left
+      others.forEach((node, idx) => {
+        positions.set(node.id, { x: 120, y: 120 + idx * 80 });
+      });
+    } else {
+      // Clinical Overview Layout: 3 Clean Functional Columns
+      // Left: Conditions | Center: Medications & Abnormal Labs | Right: Monitoring / Evidence
+      const conditions = visNodes.filter((n) => n.type === 'condition');
+      const medsAndLabs = visNodes.filter((n) => n.type === 'medication' || n.type === 'lab_result' || n.type === 'vital');
+      const docsAndOthers = visNodes.filter((n) => n.type === 'document' || n.type === 'allergy');
+
+      const placeColumn = (items: GraphNode[], xCol: number, yStart = 100, yGap = 130) => {
+        items.forEach((item, index) => {
+          positions.set(item.id, {
+            x: xCol,
+            y: yStart + index * yGap,
+          });
+        });
+      };
+
+      placeColumn(conditions, 160, 120, 140);
+      placeColumn(medsAndLabs, 500, 100, 130);
+      placeColumn(docsAndOthers, 840, 120, 140);
+    }
+
+    // 4. Paginate sidebar records
+    const startIdx = (sidebarPage - 1) * sidebarPageSize;
+    const paginatedSidebar = filteredNodes.slice(startIdx, startIdx + sidebarPageSize);
 
     return {
-      filteredNodes: activeNodes,
-      filteredEdges: activeEdges,
+      visibleNodes: visNodes,
+      visibleEdges: visEdges,
       nodePositions: positions,
       connectedNodeIds: connNodeIds,
       connectedEdgeIds: connEdgeIds,
-      conflictNodes: cNodes,
-      medicationJourneyList: medList
+      allFilteredNodes: filteredNodes,
+      paginatedSidebarNodes: paginatedSidebar,
+      totalSidebarRecords: filteredNodes.length,
     };
-  }, [graphData, searchQuery, filterType, filterStatus, selectedNodeId, viewMode]);
+  }, [
+    graphData,
+    viewMode,
+    selectedNodeId,
+    expandedNodeIds,
+    searchQuery,
+    filterType,
+    statusFilter,
+    abnormalityFilter,
+    verificationFilter,
+    dateFrom,
+    dateTo,
+    sidebarPage,
+  ]);
 
-  // Selected entities
-  const selectedNode = useMemo(
-    () => graphData?.nodes.find((n) => n.id === selectedNodeId) || null,
-    [graphData, selectedNodeId]
-  );
+  // Selected Node & Edge details
+  const selectedNode = useMemo(() => {
+    if (!graphData || !selectedNodeId) return null;
+    return graphData.nodes.find((n) => n.id === selectedNodeId) || null;
+  }, [graphData, selectedNodeId]);
 
-  const selectedEdge = useMemo(
-    () => graphData?.edges.find((e) => e.id === selectedEdgeId) || null,
-    [graphData, selectedEdgeId]
-  );
+  const selectedEdge = useMemo(() => {
+    if (!graphData || !selectedEdgeId) return null;
+    return graphData.edges.find((e) => e.id === selectedEdgeId) || null;
+  }, [graphData, selectedEdgeId]);
 
-  // Zoom / Pan Handlers
-  const handleZoom = (factor: number) => {
-    setZoom((prev) => Math.min(Math.max(0.4, prev * factor), 2.0));
-  };
-
-  const handleResetView = () => {
-    setZoom(1);
-    setPan({ x: 0, y: 0 });
-    if (filteredNodes.length > 0) {
-      setSelectedNodeId(filteredNodes[0].id);
-    }
-  };
-
-  const handleMouseDown = (e: React.MouseEvent) => {
-    if ((e.target as HTMLElement).closest('.interactive-node')) return;
-    setIsDragging(true);
-    setDragStart({ x: e.clientX - pan.x, y: e.clientY - pan.y });
-  };
-
-  const handleMouseMove = (e: React.MouseEvent) => {
-    if (!isDragging) return;
-    setPan({
-      x: e.clientX - dragStart.x,
-      y: e.clientY - dragStart.y,
-    });
-  };
-
-  const handleMouseUp = () => {
-    setIsDragging(false);
-  };
-
-  // Quick Clinical Shortcuts
-  const handleShortcut = (shortcutType: string) => {
-    switch (shortcutType) {
-      case 'why_medication':
-        setViewMode('overview');
-        setFilterType('medication');
-        const firstMed = graphData?.nodes.find((n) => n.type === 'medication');
-        if (firstMed) setSelectedNodeId(firstMed.id);
-        break;
-      case 'what_changed':
-        setViewMode('journey');
-        break;
-      case 'which_conflicts':
-        setViewMode('review');
-        setFilterStatus('conflict');
-        if (conflictNodes.length > 0) setSelectedNodeId(conflictNodes[0].id);
-        break;
-      case 'evidence_sources':
-        setViewMode('evidence');
-        break;
-      case 'conditions_overview':
-        setViewMode('overview');
-        setFilterType('condition');
-        const firstCond = graphData?.nodes.find((n) => n.type === 'condition');
-        if (firstCond) setSelectedNodeId(firstCond.id);
-        break;
-      default:
-        break;
-    }
-  };
+  // Keyboard Navigation: Escape to clear selection, Arrow keys to navigate
+  useEffect(() => {
+    const handleKeyDown = (e: KeyboardEvent) => {
+      if (e.key === 'Escape') {
+        setSelectedNodeId(null);
+        setSelectedEdgeId(null);
+      }
+    };
+    window.addEventListener('keydown', handleKeyDown);
+    return () => window.removeEventListener('keydown', handleKeyDown);
+  }, []);
 
   return (
-    <div className="space-y-4">
-      {/* 
-        Top Explorer Control Header
-        Includes page title, explanatory subtitle, view mode selector, and quick clinical shortcuts
-      */}
-      <div className="med-card p-4 space-y-3">
-        <div className="flex flex-col md:flex-row md:items-center justify-between gap-3 border-b border-[#D9E3EB] dark:border-[#2A3A4D] pb-3">
-          <div>
-            <div className="flex items-center space-x-2">
-              <span className="med-badge med-badge-teal">Information Navigation</span>
-              <span className="text-[11px] text-[#536777] dark:text-[#91A3B5] font-mono">
-                {graphData?.nodes.length || 0} Entities • {graphData?.edges.length || 0} Verified Links
-              </span>
-            </div>
-            <h2 className="text-xl font-bold tracking-tight text-[#172B3A] dark:text-[#E7EEF5] mt-1">
-              Medical Relationship Explorer
-            </h2>
-            <p className="text-xs text-[#536777] dark:text-[#91A3B5]">
-              Explore documented clinical connections, medication changes over time, and source document evidence.
-            </p>
-          </div>
+    <div className="flex flex-col h-[820px] bg-neutral-50 dark:bg-neutral-950 rounded-2xl border border-neutral-200/80 dark:border-neutral-800 shadow-sm overflow-hidden select-none">
+      {/* 1. TOP HEADER & VIEW MODE BAR */}
+      <div className="p-3 sm:px-5 sm:py-3.5 bg-white dark:bg-neutral-900 border-b border-neutral-200/80 dark:border-neutral-800 flex flex-wrap items-center justify-between gap-3">
+        {/* View Modes Selector */}
+        <div className="flex items-center gap-1.5 p-1 bg-neutral-100 dark:bg-neutral-800/80 rounded-xl border border-neutral-200/60 dark:border-neutral-700/60 text-xs">
+          <button
+            onClick={() => handleViewModeChange('overview')}
+            className={`flex items-center gap-1.5 px-3 py-1.5 rounded-lg font-medium transition-all ${
+              viewMode === 'overview'
+                ? 'bg-white dark:bg-neutral-900 text-primary-700 dark:text-primary-300 shadow-xs font-semibold'
+                : 'text-neutral-600 dark:text-neutral-400 hover:text-neutral-900 dark:hover:text-white'
+            }`}
+          >
+            <Layers className="w-3.5 h-3.5" />
+            <span>Clinical Overview</span>
+          </button>
 
-          {/* View Mode Selector Tabs */}
-          <div className="flex items-center p-1 rounded-lg bg-[#EDF3F7] dark:bg-[#162437] border border-[#D9E3EB] dark:border-[#2A3A4D] self-start md:self-auto shrink-0">
-            {[
-              { id: 'overview', label: 'Relationship Overview', icon: Compass },
-              { id: 'journey', label: 'Medication Journey', icon: Clock },
-              { id: 'review', label: 'Needs Review', icon: AlertTriangle, count: conflictNodes.length },
-              { id: 'evidence', label: 'Evidence Connections', icon: FileCheck },
-            ].map((tab) => {
-              const TabIcon = tab.icon;
-              return (
-                <button
-                  key={tab.id}
-                  onClick={() => {
-                    setViewMode(tab.id as ExplorerViewMode);
-                    if (tab.id === 'review') setFilterStatus('conflict');
-                    else setFilterStatus('all');
-                  }}
-                  className={`px-3 py-1.5 rounded-md text-xs font-semibold transition-all flex items-center space-x-1.5 ${
-                    viewMode === tab.id
-                      ? 'bg-white dark:bg-[#111C2C] text-[#0F766E] dark:text-[#5EEAD4] shadow-xs'
-                      : 'text-[#536777] dark:text-[#B2C0CE] hover:text-[#172B3A] dark:hover:text-[#E7EEF5]'
-                  }`}
-                >
-                  <TabIcon className="w-3.5 h-3.5 shrink-0" />
-                  <span>{tab.label}</span>
-                  {tab.count !== undefined && tab.count > 0 && (
-                    <span className="px-1.5 py-0.2 rounded-full text-[10px] font-bold bg-[#B42318] text-white">
-                      {tab.count}
-                    </span>
-                  )}
-                </button>
-              );
-            })}
-          </div>
+          <button
+            onClick={() => handleViewModeChange('condition_centered')}
+            className={`flex items-center gap-1.5 px-3 py-1.5 rounded-lg font-medium transition-all ${
+              viewMode === 'condition_centered'
+                ? 'bg-white dark:bg-neutral-900 text-blue-700 dark:text-blue-300 shadow-xs font-semibold'
+                : 'text-neutral-600 dark:text-neutral-400 hover:text-neutral-900 dark:hover:text-white'
+            }`}
+          >
+            <Activity className="w-3.5 h-3.5" />
+            <span>Condition-Centered</span>
+          </button>
+
+          <button
+            onClick={() => handleViewModeChange('medication_centered')}
+            className={`flex items-center gap-1.5 px-3 py-1.5 rounded-lg font-medium transition-all ${
+              viewMode === 'medication_centered'
+                ? 'bg-white dark:bg-neutral-900 text-teal-700 dark:text-teal-300 shadow-xs font-semibold'
+                : 'text-neutral-600 dark:text-neutral-400 hover:text-neutral-900 dark:hover:text-white'
+            }`}
+          >
+            <Pill className="w-3.5 h-3.5" />
+            <span>Medication-Centered</span>
+          </button>
+
+          <button
+            onClick={() => handleViewModeChange('lab_centered')}
+            className={`flex items-center gap-1.5 px-3 py-1.5 rounded-lg font-medium transition-all ${
+              viewMode === 'lab_centered'
+                ? 'bg-white dark:bg-neutral-900 text-emerald-700 dark:text-emerald-300 shadow-xs font-semibold'
+                : 'text-neutral-600 dark:text-neutral-400 hover:text-neutral-900 dark:hover:text-white'
+            }`}
+          >
+            <FlaskConical className="w-3.5 h-3.5" />
+            <span>Laboratory-Centered</span>
+          </button>
+
+          <button
+            onClick={() => handleViewModeChange('timeline')}
+            className={`flex items-center gap-1.5 px-3 py-1.5 rounded-lg font-medium transition-all ${
+              viewMode === 'timeline'
+                ? 'bg-white dark:bg-neutral-900 text-purple-700 dark:text-purple-300 shadow-xs font-semibold'
+                : 'text-neutral-600 dark:text-neutral-400 hover:text-neutral-900 dark:hover:text-white'
+            }`}
+          >
+            <Clock className="w-3.5 h-3.5" />
+            <span>Timeline</span>
+          </button>
         </div>
 
-        {/* Quick Clinical Shortcuts Row */}
-        <div className="flex items-center gap-1.5 flex-wrap text-xs">
-          <span className="text-[11px] font-semibold text-[#536777] dark:text-[#91A3B5] mr-1">
-            Clinical Queries:
-          </span>
+        {/* Global Graph Controls (Zoom, Reset, Clear) */}
+        <div className="flex items-center gap-1.5">
           <button
-            onClick={() => handleShortcut('why_medication')}
-            className="px-2.5 py-1 rounded-md bg-[#EDF3F7] dark:bg-[#162437] hover:bg-[#E4F3F0] dark:hover:bg-[#123831] text-[#172B3A] dark:text-[#E7EEF5] border border-[#D9E3EB] dark:border-[#2A3A4D] transition-colors"
+            onClick={() => setZoom((z) => Math.min(1.8, z + 0.15))}
+            className="p-1.5 rounded-lg border border-neutral-200 dark:border-neutral-700 hover:bg-neutral-100 dark:hover:bg-neutral-800 text-neutral-600 dark:text-neutral-300 transition-colors"
+            title="Zoom In"
           >
-            Why is this medication recorded?
+            <ZoomIn className="w-4 h-4" />
           </button>
           <button
-            onClick={() => handleShortcut('what_changed')}
-            className="px-2.5 py-1 rounded-md bg-[#EDF3F7] dark:bg-[#162437] hover:bg-[#E4F3F0] dark:hover:bg-[#123831] text-[#172B3A] dark:text-[#E7EEF5] border border-[#D9E3EB] dark:border-[#2A3A4D] transition-colors"
+            onClick={() => setZoom((z) => Math.max(0.4, z - 0.15))}
+            className="p-1.5 rounded-lg border border-neutral-200 dark:border-neutral-700 hover:bg-neutral-100 dark:hover:bg-neutral-800 text-neutral-600 dark:text-neutral-300 transition-colors"
+            title="Zoom Out"
           >
-            What changed over time?
+            <ZoomOut className="w-4 h-4" />
           </button>
           <button
-            onClick={() => handleShortcut('which_conflicts')}
-            className="px-2.5 py-1 rounded-md bg-[#FFFBEB] dark:bg-[#451A03]/30 hover:bg-[#FDE68A]/40 text-[#92400E] dark:text-[#FCD34D] border border-[#FDE68A] dark:border-[#FCD34D]/40 transition-colors"
+            onClick={handleResetView}
+            className="flex items-center gap-1 px-2.5 py-1.5 rounded-lg border border-neutral-200 dark:border-neutral-700 hover:bg-neutral-100 dark:hover:bg-neutral-800 text-xs font-medium text-neutral-700 dark:text-neutral-300 transition-colors"
+            title="Reset View"
           >
-            Which records conflict?
+            <RotateCcw className="w-3.5 h-3.5" />
+            <span>Reset View</span>
           </button>
-          <button
-            onClick={() => handleShortcut('evidence_sources')}
-            className="px-2.5 py-1 rounded-md bg-[#EDF3F7] dark:bg-[#162437] hover:bg-[#E4F3F0] dark:hover:bg-[#123831] text-[#172B3A] dark:text-[#E7EEF5] border border-[#D9E3EB] dark:border-[#2A3A4D] transition-colors"
-          >
-            Where did this information come from?
-          </button>
-          <button
-            onClick={() => handleShortcut('conditions_overview')}
-            className="px-2.5 py-1 rounded-md bg-[#EDF3F7] dark:bg-[#162437] hover:bg-[#E4F3F0] dark:hover:bg-[#123831] text-[#172B3A] dark:text-[#E7EEF5] border border-[#D9E3EB] dark:border-[#2A3A4D] transition-colors"
-          >
-            Diagnoses & Conditions
-          </button>
+          {selectedNodeId && (
+            <button
+              onClick={() => {
+                setSelectedNodeId(null);
+                setSelectedEdgeId(null);
+              }}
+              className="p-1.5 rounded-lg border border-neutral-200 dark:border-neutral-700 hover:bg-neutral-100 dark:hover:bg-neutral-800 text-xs text-neutral-500 hover:text-neutral-800 dark:hover:text-neutral-200 transition-colors"
+              title="Clear Selection"
+            >
+              <X className="w-4 h-4" />
+            </button>
+          )}
         </div>
       </div>
 
-      {/* Main Three-Region Workspace Layout */}
-      <div className="grid grid-cols-1 lg:grid-cols-12 gap-4 items-start">
-        {/* ================================================================ */}
-        {/* LEFT REGION: Explore & Search Panel (lg:col-span-3)              */}
-        {/* ================================================================ */}
-        <div className="lg:col-span-3 med-card p-4 space-y-4">
-          <div>
-            <div className="relative">
-              <Search className="w-3.5 h-3.5 absolute left-3 top-2.5 text-[#536777]" />
-              <input
-                type="text"
-                value={searchQuery}
-                onChange={(e) => setSearchQuery(e.target.value)}
-                placeholder="Search condition, drug, test..."
-                className="w-full pl-8 pr-3 py-1.5 text-xs rounded-lg border border-[#D9E3EB] dark:border-[#2A3A4D] bg-[#FFFFFF] dark:bg-[#111C2C] focus:outline-none focus:ring-1 focus:ring-[#0F766E]"
-              />
-            </div>
-          </div>
-
-          {/* Category Filter Pills */}
-          <div className="space-y-1">
-            <span className="text-[10px] font-bold uppercase tracking-wider text-[#536777] dark:text-[#91A3B5]">
-              Clinical Domains
-            </span>
-            <div className="flex flex-col gap-1 text-xs">
-              {[
-                { id: 'all', label: 'All Entities', count: graphData?.nodes.length || 0 },
-                { id: 'condition', label: 'Conditions', count: graphData?.nodes.filter((n) => n.type === 'condition').length || 0 },
-                { id: 'medication', label: 'Medications', count: graphData?.nodes.filter((n) => n.type === 'medication').length || 0 },
-                { id: 'lab_result', label: 'Laboratory Measurements', count: graphData?.nodes.filter((n) => n.type === 'lab_result').length || 0 },
-                { id: 'document', label: 'Source Documents', count: graphData?.nodes.filter((n) => n.type === 'document').length || 0 },
-              ].map((c) => (
-                <button
-                  key={c.id}
-                  onClick={() => setFilterType(c.id)}
-                  className={`w-full text-left px-2.5 py-1.5 rounded-md flex items-center justify-between text-xs transition-colors ${
-                    filterType === c.id
-                      ? 'bg-[#E4F3F0] dark:bg-[#123831] text-[#0F766E] dark:text-[#5EEAD4] font-semibold border border-[#0F766E]/20'
-                      : 'text-[#536777] dark:text-[#B2C0CE] hover:bg-[#EDF3F7] dark:hover:bg-[#162437]'
-                  }`}
-                >
-                  <span>{c.label}</span>
-                  <span className="font-mono text-[10px] text-[#536777] dark:text-[#91A3B5]">{c.count}</span>
-                </button>
-              ))}
-            </div>
-          </div>
-
-          {/* Verification Status Filter */}
-          <div className="space-y-1">
-            <span className="text-[10px] font-bold uppercase tracking-wider text-[#536777] dark:text-[#91A3B5]">
-              Verification Status
-            </span>
-            <div className="grid grid-cols-2 gap-1 text-[11px]">
-              {[
-                { id: 'all', label: 'All Records' },
-                { id: 'verified', label: 'Verified Only' },
-                { id: 'unverified', label: 'Needs Review' },
-                { id: 'conflict', label: 'Conflicts' },
-              ].map((s) => (
-                <button
-                  key={s.id}
-                  onClick={() => setFilterStatus(s.id)}
-                  className={`px-2 py-1 rounded text-center border transition-colors ${
-                    filterStatus === s.id
-                      ? 'bg-[#173B57] text-white border-transparent'
-                      : 'border-[#D9E3EB] dark:border-[#2A3A4D] text-[#536777] dark:text-[#B2C0CE] hover:bg-[#EDF3F7] dark:hover:bg-[#162437]'
-                  }`}
-                >
-                  {s.label}
-                </button>
-              ))}
-            </div>
-          </div>
-
-          {/* Quick Entities List in current filter */}
-          <div className="space-y-1.5 pt-2 border-t border-[#D9E3EB] dark:border-[#2A3A4D]">
-            <span className="text-[10px] font-bold uppercase tracking-wider text-[#536777] dark:text-[#91A3B5]">
-              Matching Records ({filteredNodes.length})
-            </span>
-            <div className="max-h-56 overflow-y-auto space-y-1 pr-1 text-xs">
-              {filteredNodes.length === 0 ? (
-                <p className="text-[#536777] dark:text-[#91A3B5] text-[11px] italic py-2">
-                  No records match the current filters.
-                </p>
-              ) : (
-                filteredNodes.map((node) => {
-                  const isSelected = selectedNodeId === node.id;
-                  const config = getNodeColorConfig(node.type);
-                  return (
-                    <button
-                      key={node.id}
-                      onClick={() => {
-                        setSelectedNodeId(node.id);
-                        setSelectedEdgeId(null);
-                      }}
-                      className={`w-full text-left p-1.5 rounded-md flex items-center justify-between text-xs transition-colors ${
-                        isSelected
-                          ? 'bg-[#173B57] text-white font-semibold'
-                          : 'hover:bg-[#EDF3F7] dark:hover:bg-[#162437] text-[#172B3A] dark:text-[#E7EEF5]'
-                      }`}
-                    >
-                      <span className="truncate pr-1">{node.label}</span>
-                      <span
-                        className={`text-[9px] uppercase px-1 py-0.2 rounded font-bold shrink-0 ${
-                          isSelected ? 'bg-white/20 text-white' : `${config.bg} ${config.text}`
-                        }`}
-                      >
-                        {node.type}
-                      </span>
-                    </button>
-                  );
-                })
-              )}
-            </div>
-          </div>
+      {/* 2. FILTER & SEARCH STRIP */}
+      <div className="px-4 py-2.5 bg-white/60 dark:bg-neutral-900/60 border-b border-neutral-200/70 dark:border-neutral-800/80 flex flex-wrap items-center justify-between gap-3 text-xs">
+        {/* Search input */}
+        <div className="relative flex-1 min-w-[200px] max-w-xs">
+          <Search className="w-3.5 h-3.5 absolute left-3 top-2.5 text-neutral-400" />
+          <input
+            type="text"
+            placeholder="Search conditions, medications, labs..."
+            value={searchQuery}
+            onChange={(e) => setSearchQuery(e.target.value)}
+            className="w-full pl-8 pr-3 py-1.5 rounded-lg bg-neutral-50 dark:bg-neutral-800 border border-neutral-200 dark:border-neutral-700 text-xs text-neutral-800 dark:text-neutral-200 placeholder-neutral-400 focus:outline-none focus:ring-1 focus:ring-primary-500"
+          />
         </div>
 
-        {/* ================================================================ */}
-        {/* CENTER REGION: Interactive Relationship Canvas (lg:col-span-6)  */}
-        {/* ================================================================ */}
-        <div className="lg:col-span-6 med-card overflow-hidden flex flex-col relative min-h-[580px]">
-          {/* Canvas Controls Toolbar */}
-          <div className="p-3 border-b border-[#D9E3EB] dark:border-[#2A3A4D] bg-[#EDF3F7]/60 dark:bg-[#162437]/60 flex items-center justify-between z-10">
-            <div className="flex items-center space-x-2 text-xs">
-              <span className="font-semibold text-[#172B3A] dark:text-[#E7EEF5]">
-                {viewMode === 'journey'
-                  ? 'Medication Timeline & Dosage Sequence'
-                  : viewMode === 'review'
-                  ? 'Conflict & Discrepancy Inspection View'
-                  : viewMode === 'evidence'
-                  ? 'Source Provenance & Document Network'
-                  : 'Clinical Relationship Graph'}
-              </span>
-            </div>
+        {/* Filters bar */}
+        <div className="flex flex-wrap items-center gap-2">
+          {/* Entity Type Filter */}
+          <select
+            value={filterType}
+            onChange={(e) => setFilterType(e.target.value)}
+            className="bg-neutral-50 dark:bg-neutral-800 border border-neutral-200 dark:border-neutral-700 rounded-lg px-2.5 py-1.5 text-xs text-neutral-700 dark:text-neutral-300 focus:outline-none focus:ring-1 focus:ring-primary-500 cursor-pointer"
+          >
+            <option value="all">All Entity Types</option>
+            <option value="condition">Conditions</option>
+            <option value="medication">Medications</option>
+            <option value="lab_result">Laboratory Results</option>
+            <option value="vital">Vitals</option>
+            <option value="document">Source Documents</option>
+          </select>
 
-            {viewMode !== 'journey' && (
-              <div className="flex items-center space-x-1">
-                <button
-                  onClick={() => handleZoom(1.2)}
-                  className="p-1 rounded bg-white dark:bg-[#111C2C] border border-[#D9E3EB] dark:border-[#2A3A4D] text-[#536777] hover:text-[#172B3A] dark:hover:text-[#E7EEF5]"
-                  title="Zoom In"
+          {/* Status Filter */}
+          <select
+            value={statusFilter}
+            onChange={(e) => setStatusFilter(e.target.value as any)}
+            className="bg-neutral-50 dark:bg-neutral-800 border border-neutral-200 dark:border-neutral-700 rounded-lg px-2.5 py-1.5 text-xs text-neutral-700 dark:text-neutral-300 focus:outline-none focus:ring-1 focus:ring-primary-500 cursor-pointer"
+          >
+            <option value="all">All Statuses</option>
+            <option value="active_only">Active Only</option>
+            <option value="inactive_only">Historical / Inactive</option>
+          </select>
+
+          {/* Abnormality Filter */}
+          <select
+            value={abnormalityFilter}
+            onChange={(e) => setAbnormalityFilter(e.target.value as any)}
+            className="bg-neutral-50 dark:bg-neutral-800 border border-neutral-200 dark:border-neutral-700 rounded-lg px-2.5 py-1.5 text-xs text-neutral-700 dark:text-neutral-300 focus:outline-none focus:ring-1 focus:ring-primary-500 cursor-pointer"
+          >
+            <option value="all">All Observations</option>
+            <option value="abnormal_only">Abnormal Labs Only</option>
+            <option value="normal_only">Normal Within Range</option>
+          </select>
+
+          {/* Verification Filter */}
+          <select
+            value={verificationFilter}
+            onChange={(e) => setVerificationFilter(e.target.value as any)}
+            className="bg-neutral-50 dark:bg-neutral-800 border border-neutral-200 dark:border-neutral-700 rounded-lg px-2.5 py-1.5 text-xs text-neutral-700 dark:text-neutral-300 focus:outline-none focus:ring-1 focus:ring-primary-500 cursor-pointer"
+          >
+            <option value="all">All Verifications</option>
+            <option value="verified">Clinician Verified</option>
+            <option value="unverified">Awaiting Verification</option>
+          </select>
+        </div>
+      </div>
+
+      {/* 3. MAIN THREE-PANE BODY */}
+      <div className="flex-1 flex overflow-hidden">
+        {/* LEFT SIDEBAR: Paginated Matching Records List */}
+        <div className="w-72 bg-white dark:bg-neutral-900 border-r border-neutral-200/80 dark:border-neutral-800 flex flex-col shrink-0">
+          <div className="p-3 border-b border-neutral-100 dark:border-neutral-800 flex items-center justify-between text-xs font-semibold text-neutral-700 dark:text-neutral-300">
+            <span>Matching Clinical Records</span>
+            <span className="px-2 py-0.5 rounded-full text-[10px] font-bold bg-neutral-100 dark:bg-neutral-800 text-neutral-600 dark:text-neutral-400">
+              {totalSidebarRecords}
+            </span>
+          </div>
+
+          <div className="flex-1 overflow-y-auto p-2 space-y-1.5">
+            {paginatedSidebarNodes.map((node) => {
+              const isSelected = node.id === selectedNodeId;
+              const isConn = connectedNodeIds.has(node.id);
+              const colorCfg = getNodeColorConfig(node.type, node.is_abnormal);
+              const IconComp = colorCfg.icon;
+
+              return (
+                <div
+                  key={`sidebar-${node.id}`}
+                  onClick={() => {
+                    setSelectedNodeId(node.id);
+                    setSelectedEdgeId(null);
+                  }}
+                  className={`p-2.5 rounded-xl border text-xs cursor-pointer transition-all ${
+                    isSelected
+                      ? 'border-primary-500 bg-primary-50/70 dark:bg-primary-950/40 shadow-xs'
+                      : 'border-neutral-200/70 dark:border-neutral-800/80 hover:bg-neutral-50 dark:hover:bg-neutral-800/50'
+                  }`}
                 >
-                  <ZoomIn className="w-3.5 h-3.5" />
-                </button>
-                <button
-                  onClick={() => handleZoom(0.8)}
-                  className="p-1 rounded bg-white dark:bg-[#111C2C] border border-[#D9E3EB] dark:border-[#2A3A4D] text-[#536777] hover:text-[#172B3A] dark:hover:text-[#E7EEF5]"
-                  title="Zoom Out"
-                >
-                  <ZoomOut className="w-3.5 h-3.5" />
-                </button>
-                <button
-                  onClick={handleResetView}
-                  className="p-1 rounded bg-white dark:bg-[#111C2C] border border-[#D9E3EB] dark:border-[#2A3A4D] text-[#536777] hover:text-[#172B3A] dark:hover:text-[#E7EEF5]"
-                  title="Reset View"
-                >
-                  <RotateCcw className="w-3.5 h-3.5" />
-                </button>
+                  <div className="flex items-center justify-between gap-1.5 mb-1">
+                    <span className="flex items-center gap-1.5 font-semibold text-neutral-900 dark:text-neutral-100 truncate">
+                      <IconComp className="w-3.5 h-3.5 shrink-0" style={{ color: colorCfg.accent }} />
+                      <span className="truncate">{node.label}</span>
+                    </span>
+                    {node.is_abnormal && (
+                      <span className="px-1.5 py-0.2 rounded text-[9px] font-bold bg-rose-100 text-rose-700 dark:bg-rose-950 dark:text-rose-400">
+                        {node.abnormality_status?.toUpperCase() || 'ABN'}
+                      </span>
+                    )}
+                  </div>
+
+                  <div className="flex items-center justify-between text-[11px] text-neutral-500 dark:text-neutral-400">
+                    <span className="capitalize">{node.type.replace('_', ' ')}</span>
+                    <span>{node.date || 'No date'}</span>
+                  </div>
+                </div>
+              );
+            })}
+
+            {paginatedSidebarNodes.length === 0 && (
+              <div className="py-12 text-center text-xs text-neutral-400">
+                No clinical records match current filters.
               </div>
             )}
           </div>
 
-          {/* Mode B: Medication Journey Lane View */}
-          {viewMode === 'journey' ? (
-            <div className="p-6 flex-1 overflow-y-auto space-y-4">
-              <div className="p-3 rounded-lg bg-[#E4F3F0] dark:bg-[#123831] border border-[#0F766E]/20 text-xs text-[#0F766E] dark:text-[#5EEAD4] flex items-center space-x-2">
-                <Clock className="w-4 h-4 shrink-0" />
-                <span>
-                  Chronological progression of prescribed medications, dosage updates, and status history.
+          {/* Sidebar Pagination Component */}
+          <div className="p-2 border-t border-neutral-100 dark:border-neutral-800 bg-neutral-50/50 dark:bg-neutral-900/50">
+            <Pagination
+              currentPage={sidebarPage}
+              pageSize={sidebarPageSize}
+              totalRecords={totalSidebarRecords}
+              onPageChange={setSidebarPage}
+              className="py-1 px-2 border-none bg-transparent shadow-none"
+            />
+          </div>
+        </div>
+
+        {/* CENTER PANE: Interactive Clinical Canvas */}
+        <div
+          ref={containerRef}
+          onMouseDown={(e) => {
+            if (e.target === containerRef.current || (e.target as HTMLElement).tagName === 'svg') {
+              setIsDragging(true);
+              setDragStart({ x: e.clientX - pan.x, y: e.clientY - pan.y });
+            }
+          }}
+          onMouseMove={(e) => {
+            if (isDragging) {
+              setPan({ x: e.clientX - dragStart.x, y: e.clientY - dragStart.y });
+            }
+          }}
+          onMouseUp={() => setIsDragging(false)}
+          onMouseLeave={() => setIsDragging(false)}
+          className="flex-1 relative overflow-hidden bg-dot-pattern cursor-grab active:cursor-grabbing bg-neutral-50/40 dark:bg-neutral-950"
+        >
+          {/* Canvas SVG for Rendered Nodes and Edges */}
+          <svg
+            className="w-full h-full pointer-events-auto"
+            style={{
+              transform: `translate(${pan.x}px, ${pan.y}px) scale(${zoom})`,
+              transformOrigin: 'center center',
+              transition: isDragging ? 'none' : 'transform 0.15s ease-out',
+            }}
+          >
+            <defs>
+              <marker
+                id="arrowhead-verified"
+                markerWidth="8"
+                markerHeight="6"
+                refX="7"
+                refY="3"
+                orient="auto"
+              >
+                <polygon points="0 0, 8 3, 0 6" fill="#0F766E" />
+              </marker>
+              <marker
+                id="arrowhead-inferred"
+                markerWidth="8"
+                markerHeight="6"
+                refX="7"
+                refY="3"
+                orient="auto"
+              >
+                <polygon points="0 0, 8 3, 0 6" fill="#94A3B8" />
+              </marker>
+            </defs>
+
+            {/* 1. EDGES */}
+            {visibleEdges.map((edge) => {
+              const srcPos = nodePositions.get(edge.source);
+              const tgtPos = nodePositions.get(edge.target);
+              if (!srcPos || !tgtPos) return null;
+
+              const isConnectedToSelected =
+                edge.source === selectedNodeId || edge.target === selectedNodeId;
+              const isSelectedEdge = edge.id === selectedEdgeId;
+              const isInferred = edge.relationship_nature === 'inferred';
+
+              const midX = (srcPos.x + tgtPos.x) / 2;
+              const midY = (srcPos.y + tgtPos.y) / 2;
+
+              return (
+                <g
+                  key={`edge-${edge.id}`}
+                  onClick={(e) => {
+                    e.stopPropagation();
+                    setSelectedEdgeId(edge.id);
+                  }}
+                  className="cursor-pointer group"
+                >
+                  <line
+                    x1={srcPos.x}
+                    y1={srcPos.y}
+                    x2={tgtPos.x}
+                    y2={tgtPos.y}
+                    stroke={
+                      isSelectedEdge
+                        ? '#0F766E'
+                        : isConnectedToSelected
+                        ? '#2563EB'
+                        : isInferred
+                        ? '#94A3B8'
+                        : '#CBD5E1'
+                    }
+                    strokeWidth={isSelectedEdge || isConnectedToSelected ? 2.5 : 1.5}
+                    strokeDasharray={isInferred ? '5,5' : undefined}
+                    opacity={selectedNodeId && !isConnectedToSelected ? 0.25 : 0.85}
+                    markerEnd={isInferred ? 'url(#arrowhead-inferred)' : 'url(#arrowhead-verified)'}
+                  />
+
+                  {/* Edge Label Badge */}
+                  <g transform={`translate(${midX}, ${midY})`}>
+                    <rect
+                      x="-44"
+                      y="-10"
+                      width="88"
+                      height="20"
+                      rx="6"
+                      fill={isInferred ? '#F8FAFC' : '#F0FDFA'}
+                      stroke={isInferred ? '#CBD5E1' : '#99F6E4'}
+                      strokeWidth="1"
+                      className="dark:fill-neutral-800 dark:stroke-neutral-700"
+                    />
+                    <text
+                      textAnchor="middle"
+                      y="3.5"
+                      fontSize="9"
+                      fontWeight="600"
+                      fill={isInferred ? '#64748B' : '#0F766E'}
+                      className="dark:fill-teal-300"
+                    >
+                      {edge.label}
+                    </text>
+                  </g>
+                </g>
+              );
+            })}
+
+            {/* 2. NODES */}
+            {visibleNodes.map((node) => {
+              const pos = nodePositions.get(node.id);
+              if (!pos) return null;
+
+              const isSelected = node.id === selectedNodeId;
+              const isConnected = connectedNodeIds.has(node.id);
+              const isDimmed = selectedNodeId !== null && !isSelected && !isConnected;
+              const isExpanded = expandedNodeIds.has(node.id);
+
+              const colorCfg = getNodeColorConfig(node.type, node.is_abnormal);
+              const IconComp = colorCfg.icon;
+
+              return (
+                <g
+                  key={`node-${node.id}`}
+                  transform={`translate(${pos.x}, ${pos.y})`}
+                  onClick={(e) => {
+                    e.stopPropagation();
+                    setSelectedNodeId(node.id);
+                    setSelectedEdgeId(null);
+                  }}
+                  onDoubleClick={(e) => {
+                    e.stopPropagation();
+                    toggleExpandNode(node.id);
+                  }}
+                  className="cursor-pointer transition-transform duration-150 ease-out"
+                  opacity={isDimmed ? 0.35 : 1}
+                >
+                  {/* Selected Focus Halo */}
+                  {isSelected && (
+                    <circle
+                      r="40"
+                      fill="none"
+                      stroke="#0F766E"
+                      strokeWidth="3"
+                      strokeDasharray="4,4"
+                      className="animate-spin-slow"
+                    />
+                  )}
+
+                  {/* Main Node Circle */}
+                  <circle
+                    r="28"
+                    fill="#FFFFFF"
+                    stroke={isSelected ? '#0F766E' : isConnected ? '#2563EB' : colorCfg.accent}
+                    strokeWidth={isSelected ? 3 : 2}
+                    className="shadow-md hover:scale-110 transition-transform dark:fill-neutral-900"
+                  />
+
+                  {/* Inner Node Icon */}
+                  <g transform="translate(-9, -9)">
+                    <IconComp className="w-4.5 h-4.5" style={{ color: colorCfg.accent }} />
+                  </g>
+
+                  {/* Node Label Text */}
+                  <text
+                    textAnchor="middle"
+                    y="42"
+                    fontSize="11"
+                    fontWeight="600"
+                    fill="#1E293B"
+                    className="dark:fill-neutral-200 pointer-events-none select-none"
+                  >
+                    {node.label.length > 20 ? `${node.label.substring(0, 18)}...` : node.label}
+                  </text>
+
+                  {/* Status / Category Subtext */}
+                  <text
+                    textAnchor="middle"
+                    y="55"
+                    fontSize="9"
+                    fill="#64748B"
+                    className="dark:fill-neutral-400 pointer-events-none select-none"
+                  >
+                    {node.is_abnormal ? `Abnormal (${node.abnormality_status})` : node.category}
+                  </text>
+
+                  {/* Expansion indicator badge */}
+                  {isSelected && (
+                    <g
+                      transform="translate(18, -18)"
+                      onClick={(e) => {
+                        e.stopPropagation();
+                        toggleExpandNode(node.id);
+                      }}
+                    >
+                      <title>{isExpanded ? 'Collapse Connections' : 'Expand Immediate Connections'}</title>
+                      <circle r="9" fill="#0F766E" />
+                      {isExpanded ? (
+                        <line x1="-4" y1="0" x2="4" y2="0" stroke="#FFFFFF" strokeWidth="2" />
+                      ) : (
+                        <>
+                          <line x1="-4" y1="0" x2="4" y2="0" stroke="#FFFFFF" strokeWidth="2" />
+                          <line x1="0" y1="-4" x2="0" y2="4" stroke="#FFFFFF" strokeWidth="2" />
+                        </>
+                      )}
+                    </g>
+                  )}
+                </g>
+              );
+            })}
+          </svg>
+
+          {/* Quick Help Overlay */}
+          <div className="absolute bottom-3 left-3 px-3 py-1.5 rounded-lg bg-white/80 dark:bg-neutral-900/80 backdrop-blur-xs border border-neutral-200/60 dark:border-neutral-800 text-[11px] text-neutral-500 dark:text-neutral-400 flex items-center gap-2 pointer-events-none shadow-xs">
+            <Info className="w-3.5 h-3.5 text-primary-600" />
+            <span>Click to inspect details. Double-click to expand/collapse relationships.</span>
+          </div>
+        </div>
+
+        {/* RIGHT DRAWER: Redesigned Relationship Details Panel */}
+        <div className="w-96 bg-white dark:bg-neutral-900 border-l border-neutral-200/80 dark:border-neutral-800 flex flex-col shrink-0 overflow-y-auto">
+          {selectedEdge ? (
+            /* Edge Details View */
+            <div className="p-5 space-y-4">
+              <div className="flex items-center justify-between border-b border-neutral-100 dark:border-neutral-800 pb-3">
+                <div className="space-y-0.5">
+                  <span className="text-[10px] font-bold uppercase tracking-wider text-teal-700 dark:text-teal-400">
+                    Clinical Relationship
+                  </span>
+                  <h4 className="text-base font-bold text-neutral-900 dark:text-white">
+                    {selectedEdge.label}
+                  </h4>
+                </div>
+                <span className={`px-2 py-0.5 rounded text-[10px] font-semibold ${
+                  selectedEdge.relationship_nature === 'inferred'
+                    ? 'bg-neutral-100 text-neutral-600 dark:bg-neutral-800 dark:text-neutral-400'
+                    : 'bg-teal-50 text-teal-700 dark:bg-teal-950 dark:text-teal-300'
+                }`}>
+                  {selectedEdge.relationship_nature === 'inferred' ? 'Inferred' : 'Documented'}
                 </span>
               </div>
 
-              {medicationJourneyList.length === 0 ? (
-                <div className="py-16 text-center text-xs text-[#536777] dark:text-[#91A3B5] italic">
-                  No medication records documented in patient history.
-                </div>
-              ) : (
-                <div className="relative border-l-2 border-[#0F766E]/30 dark:border-[#5EEAD4]/30 ml-4 space-y-6 py-2">
-                  {medicationJourneyList.map((med, index) => {
-                    const isSelected = selectedNodeId === med.id;
-                    return (
-                      <div key={med.id} className="relative pl-6">
-                        {/* Timeline Marker Node */}
-                        <div
-                          className={`absolute -left-2 top-1.5 w-4 h-4 rounded-full border-2 bg-white dark:bg-[#111C2C] transition-all ${
-                            isSelected
-                              ? 'border-[#0F766E] ring-4 ring-[#0F766E]/20'
-                              : 'border-[#536777]'
-                          }`}
-                        />
+              <div className="space-y-2 text-xs">
+                <span className="font-semibold text-neutral-700 dark:text-neutral-300">Rationale</span>
+                <p className="p-3 rounded-lg bg-neutral-50 dark:bg-neutral-800/60 text-neutral-700 dark:text-neutral-300 leading-relaxed">
+                  {selectedEdge.explanation || 'Explicit link verified from clinical report.'}
+                </p>
+              </div>
 
-                        {/* Card */}
-                        <div
-                          onClick={() => {
-                            setSelectedNodeId(med.id);
-                            setSelectedEdgeId(null);
-                          }}
-                          className={`p-3.5 rounded-lg border cursor-pointer transition-all ${
-                            isSelected
-                              ? 'border-[#0F766E] bg-[#E4F3F0]/40 dark:bg-[#123831]/40 shadow-xs'
-                              : 'border-[#D9E3EB] dark:border-[#2A3A4D] bg-white dark:bg-[#111C2C] hover:border-[#0F766E]/50'
-                          }`}
-                        >
-                          <div className="flex items-center justify-between">
-                            <span className="font-bold text-sm text-[#172B3A] dark:text-[#E7EEF5]">
-                              {med.label}
-                            </span>
-                            <span className="text-[11px] font-mono text-[#536777] dark:text-[#91A3B5] flex items-center gap-1">
-                              <Calendar className="w-3 h-3" /> {med.date || 'Date Unspecified'}
-                            </span>
-                          </div>
-
-                          <div className="mt-1 text-xs text-[#536777] dark:text-[#B2C0CE] flex items-center gap-2">
-                            <span>Status: <strong className="capitalize">{med.verification_status}</strong></span>
-                            {med.document_name && <span>• Source: {med.document_name}</span>}
-                          </div>
-
-                          {med.source_excerpt && (
-                            <blockquote className="mt-2 p-2 rounded bg-[#F5F8FB] dark:bg-[#0B1220] border border-[#D9E3EB] dark:border-[#2A3A4D] text-[11px] text-[#536777] dark:text-[#91A3B5] italic">
-                              "{med.source_excerpt}"
-                            </blockquote>
-                          )}
-                        </div>
-                      </div>
-                    );
-                  })}
+              {selectedEdge.source_document_name && (
+                <div className="p-3 rounded-lg border border-neutral-200 dark:border-neutral-800 space-y-1.5 text-xs">
+                  <div className="flex items-center justify-between text-neutral-500 dark:text-neutral-400">
+                    <span>Source Report</span>
+                    <span>Page {selectedEdge.source_page || 1}</span>
+                  </div>
+                  <p className="font-semibold text-neutral-900 dark:text-white truncate">
+                    {selectedEdge.source_document_name}
+                  </p>
+                  {selectedEdge.source_excerpt && (
+                    <blockquote className="mt-2 pl-2 border-l-2 border-teal-500 text-[11px] text-neutral-600 dark:text-neutral-400 italic">
+                      "{selectedEdge.source_excerpt}"
+                    </blockquote>
+                  )}
                 </div>
               )}
             </div>
-          ) : (
-            /* Mode A, C, D: Interactive SVG Canvas */
-            <div
-              ref={containerRef}
-              onMouseDown={handleMouseDown}
-              onMouseMove={handleMouseMove}
-              onMouseUp={handleMouseUp}
-              className="flex-1 w-full h-[520px] overflow-hidden cursor-grab active:cursor-grabbing bg-[#F5F8FB] dark:bg-[#0B1220] relative select-none"
-            >
-              <div
-                style={{
-                  transform: `translate(${pan.x}px, ${pan.y}px) scale(${zoom})`,
-                  transformOrigin: '0 0',
-                  position: 'absolute',
-                  width: '1800px',
-                  height: '1200px',
-                }}
-              >
-                {/* SVG Connecting Edges */}
-                <svg className="absolute inset-0 w-full h-full pointer-events-none" style={{ zIndex: 1 }}>
-                  <defs>
-                    <marker
-                      id="arrow-verified"
-                      viewBox="0 0 10 10"
-                      refX="18"
-                      refY="5"
-                      markerWidth="6"
-                      markerHeight="6"
-                      orient="auto-start-reverse"
-                    >
-                      <path d="M 0 0 L 10 5 L 0 10 z" fill="#0F766E" />
-                    </marker>
-                    <marker
-                      id="arrow-conflict"
-                      viewBox="0 0 10 10"
-                      refX="18"
-                      refY="5"
-                      markerWidth="6"
-                      markerHeight="6"
-                      orient="auto-start-reverse"
-                    >
-                      <path d="M 0 0 L 10 5 L 0 10 z" fill="#B42318" />
-                    </marker>
-                    <marker
-                      id="arrow-neutral"
-                      viewBox="0 0 10 10"
-                      refX="18"
-                      refY="5"
-                      markerWidth="6"
-                      markerHeight="6"
-                      orient="auto-start-reverse"
-                    >
-                      <path d="M 0 0 L 10 5 L 0 10 z" fill="#65798A" />
-                    </marker>
-                  </defs>
-
-                  {filteredEdges.map((edge) => {
-                    const sourcePos = nodePositions.get(edge.source);
-                    const targetPos = nodePositions.get(edge.target);
-                    if (!sourcePos || !targetPos) return null;
-
-                    const isSelected = selectedEdgeId === edge.id;
-                    const isConnected = connectedEdgeIds.has(edge.id);
-                    const isConflict = edge.relationship_type === 'discrepancy' || edge.label.toLowerCase().includes('mismatch');
-
-                    // Node card width ~240, height ~80
-                    const sx = sourcePos.x + 220;
-                    const sy = sourcePos.y + 40;
-                    const tx = targetPos.x;
-                    const ty = targetPos.y + 40;
-                    const mx = (sx + tx) / 2;
-                    const my = (sy + ty) / 2;
-
-                    const strokeColor = isConflict
-                      ? '#B42318'
-                      : isSelected || isConnected
-                      ? '#0F766E'
-                      : '#CBD5E1';
-
-                    const strokeWidth = isSelected ? 3 : isConnected ? 2 : 1.5;
-                    const isDashed = isConflict || edge.status === 'unverified';
-
-                    return (
-                      <g key={edge.id} className="cursor-pointer pointer-events-auto" onClick={() => setSelectedEdgeId(edge.id)}>
-                        <path
-                          d={`M ${sx} ${sy} C ${sx + 60} ${sy}, ${tx - 60} ${ty}, ${tx} ${ty}`}
-                          fill="none"
-                          stroke={strokeColor}
-                          strokeWidth={strokeWidth}
-                          strokeDasharray={isDashed ? '4,4' : undefined}
-                          markerEnd={isConflict ? 'url(#arrow-conflict)' : 'url(#arrow-verified)'}
-                        />
-
-                        {/* Edge Label Pill */}
-                        <g transform={`translate(${mx}, ${my})`}>
-                          <rect
-                            x="-50"
-                            y="-10"
-                            width="100"
-                            height="20"
-                            rx="4"
-                            className="fill-white dark:fill-[#111C2C] stroke-[#D9E3EB] dark:stroke-[#2A3A4D]"
-                            strokeWidth="1"
-                          />
-                          <text
-                            textAnchor="middle"
-                            y="4"
-                            className={`text-[9px] font-semibold select-none ${
-                              isConflict ? 'fill-[#B42318]' : 'fill-[#536777] dark:fill-[#91A3B5]'
-                            }`}
-                          >
-                            {edge.label}
-                          </text>
-                        </g>
-                      </g>
-                    );
-                  })}
-                </svg>
-
-                {/* Render Nodes as Structured Clinical Cards */}
-                {filteredNodes.map((node) => {
-                  const pos = nodePositions.get(node.id);
-                  if (!pos) return null;
-
-                  const isSelected = selectedNodeId === node.id;
-                  const isConnected = connectedNodeIds.has(node.id);
-                  const isDimmed = selectedNodeId && !isConnected && !isSelected;
-                  const isConflict = conflictNodes.some((c) => c.id === node.id);
-                  const config = getNodeColorConfig(node.type, isConflict);
-                  const Icon = config.icon;
-
-                  return (
-                    <div
-                      key={node.id}
-                      style={{
-                        left: `${pos.x}px`,
-                        top: `${pos.y}px`,
-                        opacity: isDimmed ? 0.35 : 1,
-                        zIndex: isSelected ? 10 : 2,
-                      }}
-                      onClick={() => {
-                        setSelectedNodeId(node.id);
-                        setSelectedEdgeId(null);
-                      }}
-                      className={`interactive-node absolute w-60 p-3 rounded-lg border transition-all duration-150 cursor-pointer shadow-xs ${
-                        config.bg
-                      } ${
-                        isSelected
-                          ? 'ring-2 ring-[#0F766E] border-[#0F766E] shadow-md scale-102'
-                          : isConnected
-                          ? 'border-[#0F766E]/60 shadow-xs'
-                          : config.border
-                      }`}
-                    >
-                      <div className="flex items-start justify-between gap-1.5">
-                        <div className="flex items-center space-x-1.5 truncate">
-                          <div
-                            className="w-5 h-5 rounded flex items-center justify-center shrink-0"
-                            style={{ backgroundColor: config.accent, color: '#FFFFFF' }}
-                          >
-                            <Icon className="w-3 h-3" />
-                          </div>
-                          <span className="text-[10px] font-bold uppercase tracking-wider text-[#536777] dark:text-[#91A3B5] truncate">
-                            {node.category}
-                          </span>
-                        </div>
-
-                        {node.date && (
-                          <span className="text-[9px] font-medium text-[#536777] dark:text-[#91A3B5] shrink-0 flex items-center gap-0.5">
-                            <Calendar className="w-2.5 h-2.5" /> {node.date}
-                          </span>
-                        )}
-                      </div>
-
-                      <h4 className="text-xs font-bold text-[#172B3A] dark:text-[#E7EEF5] mt-1.5 line-clamp-2 leading-snug">
-                        {node.label}
-                      </h4>
-
-                      <div className="mt-2 pt-1.5 border-t border-[#D9E3EB] dark:border-[#2A3A4D] flex items-center justify-between text-[10px]">
-                        <span className="truncate max-w-[100px] text-[#536777] dark:text-[#91A3B5]">
-                          {node.document_name ? `Doc: ${node.document_name}` : 'Record'}
-                        </span>
-                        <div className="flex items-center gap-1">
-                          {node.id.startsWith('fact-') && (
-                            <ConfidenceBadge
-                              score={node.confidence_score}
-                              label={node.confidence_label}
-                              compact
-                              onClick={() => handleInspectConfidence(node)}
-                            />
-                          )}
-                          <span className="capitalize font-semibold text-[#0F766E] dark:text-[#5EEAD4]">
-                            {node.verification_status.replace('_', ' ')}
-                          </span>
-                        </div>
-                      </div>
-                    </div>
-                  );
-                })}
-              </div>
-            </div>
-          )}
-        </div>
-
-        {/* ================================================================ */}
-        {/* RIGHT REGION: Clinical Evidence & Entity Details (lg:col-span-3) */}
-        {/* ================================================================ */}
-        <div className="lg:col-span-3 med-card p-4 space-y-4">
-          {selectedEdge ? (
-            /* Selected Edge Explanation */
-            <div className="space-y-3">
-              <div className="flex items-center justify-between border-b border-[#D9E3EB] dark:border-[#2A3A4D] pb-2">
-                <span className="med-badge med-badge-teal">Relationship Link</span>
-                <button
-                  onClick={() => setSelectedEdgeId(null)}
-                  className="text-xs text-[#536777] hover:text-[#172B3A]"
-                >
-                  ✕
-                </button>
-              </div>
-
-              <div>
-                <h3 className="text-sm font-bold text-[#172B3A] dark:text-[#E7EEF5]">
-                  {selectedEdge.label}
-                </h3>
-                <span className="text-[10px] font-mono text-[#536777] dark:text-[#91A3B5]">
-                  Type: {selectedEdge.relationship_type}
-                </span>
-              </div>
-
-              <div className="p-3 rounded-lg bg-[#EDF3F7] dark:bg-[#162437] border border-[#D9E3EB] dark:border-[#2A3A4D] space-y-1.5">
-                <h4 className="text-[11px] font-bold uppercase tracking-wider text-[#173B57] dark:text-[#8FB8D8]">
-                  Why are these items connected?
-                </h4>
-                <p className="text-xs text-[#172B3A] dark:text-[#E7EEF5] leading-relaxed">
-                  {selectedEdge.explanation ||
-                    'Clinical association grounded in shared prescription and document provenance records.'}
-                </p>
-              </div>
-            </div>
           ) : selectedNode ? (
-            /* Selected Node Details */
-            <div className="space-y-3.5">
-              <div className="flex items-center justify-between border-b border-[#D9E3EB] dark:border-[#2A3A4D] pb-2">
-                <span className="med-badge med-badge-teal">{selectedNode.category}</span>
-                {selectedNode.id.startsWith('fact-') && (
-                  <ConfidenceBadge
-                    score={selectedNode.confidence_score}
-                    label={selectedNode.confidence_label}
-                    onClick={() => handleInspectConfidence(selectedNode)}
-                  />
-                )}
-              </div>
-
-              <div>
-                <h3 className="text-base font-bold text-[#172B3A] dark:text-[#E7EEF5]">
+            /* Node Details View */
+            <div className="p-5 space-y-5 text-xs">
+              {/* Header */}
+              <div className="space-y-1.5 border-b border-neutral-100 dark:border-neutral-800 pb-3">
+                <div className="flex items-center justify-between">
+                  <span className="px-2 py-0.5 rounded text-[10px] font-bold uppercase tracking-wider bg-neutral-100 dark:bg-neutral-800 text-neutral-700 dark:text-neutral-300">
+                    {selectedNode.type.replace('_', ' ')}
+                  </span>
+                  {selectedNode.is_abnormal && (
+                    <span className="px-2 py-0.5 rounded-full text-[10px] font-bold bg-rose-50 text-rose-700 dark:bg-rose-950/60 dark:text-rose-400 border border-rose-200 dark:border-rose-900/50">
+                      {selectedNode.abnormality_status?.toUpperCase() || 'ABNORMAL'}
+                    </span>
+                  )}
+                </div>
+                <h3 className="text-lg font-bold text-neutral-900 dark:text-white">
                   {selectedNode.label}
                 </h3>
                 {selectedNode.date && (
-                  <span className="text-xs text-[#536777] dark:text-[#91A3B5] flex items-center gap-1 mt-0.5">
-                    <Calendar className="w-3 h-3" /> Recorded: {selectedNode.date}
-                  </span>
-                )}
-              </div>
-
-              {/* Clinical Attributes */}
-              <div className="p-3 rounded-lg bg-[#EDF3F7] dark:bg-[#162437] border border-[#D9E3EB] dark:border-[#2A3A4D] space-y-1.5 text-xs">
-                <span className="text-[10px] font-bold uppercase tracking-wider text-[#536777] dark:text-[#91A3B5] block">
-                  Documented Attributes
-                </span>
-                {Object.entries(selectedNode.details).map(([k, v]) => (
-                  <div key={k} className="flex justify-between border-b border-[#D9E3EB]/50 dark:border-[#2A3A4D]/50 pb-1">
-                    <span className="text-[#536777] dark:text-[#91A3B5] capitalize">{k.replace('_', ' ')}:</span>
-                    <span className="font-semibold text-[#172B3A] dark:text-[#E7EEF5] text-right truncate max-w-[150px]">
-                      {typeof v === 'object' ? JSON.stringify(v) : String(v)}
-                    </span>
-                  </div>
-                ))}
-              </div>
-
-              {/* Source Evidence Provenance */}
-              <div className="p-3 rounded-lg bg-[#EDF3F7] dark:bg-[#162437] border border-[#D9E3EB] dark:border-[#2A3A4D] space-y-1.5 text-xs">
-                <span className="text-[10px] font-bold uppercase tracking-wider text-[#536777] dark:text-[#91A3B5] block">
-                  Source Provenance
-                </span>
-                <div className="flex items-center space-x-1.5 text-[#172B3A] dark:text-[#E7EEF5] font-semibold">
-                  <FileText className="w-3.5 h-3.5 text-[#0F766E]" />
-                  <span className="truncate">{selectedNode.document_name || 'Clinical Document'}</span>
-                  {selectedNode.source_page && <span>(Pg {selectedNode.source_page})</span>}
-                </div>
-                {selectedNode.source_excerpt ? (
-                  <blockquote className="p-2 rounded bg-white dark:bg-[#111C2C] border border-[#D9E3EB] dark:border-[#2A3A4D] text-[11px] text-[#536777] dark:text-[#B2C0CE] italic leading-relaxed">
-                    "{selectedNode.source_excerpt}"
-                  </blockquote>
-                ) : (
-                  <p className="text-[11px] text-[#536777] dark:text-[#91A3B5] italic">
-                    Original OCR coordinates recorded at document ingestion.
+                  <p className="text-[11px] text-neutral-500 dark:text-neutral-400 flex items-center gap-1.5">
+                    <Calendar className="w-3.5 h-3.5" />
+                    <span>Documented: {selectedNode.date}</span>
                   </p>
                 )}
               </div>
 
-              {/* Navigation & Inspection Actions */}
-              <div className="space-y-1.5 pt-2">
-                {selectedNode.id.startsWith('fact-') && (
-                  <>
-                    <button
-                      onClick={() => handleInspectEvidence(selectedNode)}
-                      className="med-btn-primary w-full text-xs"
-                    >
-                      <Eye className="w-3.5 h-3.5" />
-                      <span>Inspect Source Excerpt</span>
-                    </button>
-                    <button
-                      onClick={() => handleInspectConfidence(selectedNode)}
-                      className="med-btn-secondary w-full text-xs"
-                    >
-                      <ShieldAlert className="w-3.5 h-3.5 text-[#0F766E]" />
-                      <span>View Confidence Breakdown</span>
-                    </button>
-                    {onJumpToTimeline && (
-                      <button
-                        onClick={() => {
-                          const factId = parseInt(selectedNode.id.replace('fact-', ''), 10);
-                          onJumpToTimeline(factId);
-                        }}
-                        className="med-btn-secondary w-full text-xs"
-                      >
-                        <Clock className="w-3.5 h-3.5 text-[#245F91]" />
-                        <span>Jump to Timeline Record</span>
-                      </button>
-                    )}
-                  </>
+              {/* Clinical Attributes Section (No empty placeholders) */}
+              <div className="space-y-2">
+                <span className="font-semibold text-neutral-900 dark:text-white">Clinical Attributes</span>
+                <div className="p-3 rounded-lg bg-neutral-50 dark:bg-neutral-800/50 border border-neutral-200/60 dark:border-neutral-800 space-y-1.5">
+                  {selectedNode.details?.value && (
+                    <div className="flex justify-between">
+                      <span className="text-neutral-500 dark:text-neutral-400">Observed Result:</span>
+                      <strong className="text-neutral-900 dark:text-white">
+                        {selectedNode.details.value} {selectedNode.details.unit || selectedNode.details.standard_unit || ''}
+                      </strong>
+                    </div>
+                  )}
+                  {selectedNode.details?.reference_range && (
+                    <div className="flex justify-between">
+                      <span className="text-neutral-500 dark:text-neutral-400">Reference Range:</span>
+                      <span className="text-neutral-800 dark:text-neutral-200">{selectedNode.details.reference_range}</span>
+                    </div>
+                  )}
+                  {selectedNode.details?.dosage && (
+                    <div className="flex justify-between">
+                      <span className="text-neutral-500 dark:text-neutral-400">Dosage:</span>
+                      <strong className="text-neutral-900 dark:text-white">{selectedNode.details.dosage}</strong>
+                    </div>
+                  )}
+                  {selectedNode.details?.frequency && (
+                    <div className="flex justify-between">
+                      <span className="text-neutral-500 dark:text-neutral-400">Frequency:</span>
+                      <span className="text-neutral-800 dark:text-neutral-200">{selectedNode.details.frequency}</span>
+                    </div>
+                  )}
+                  {selectedNode.details?.status && (
+                    <div className="flex justify-between">
+                      <span className="text-neutral-500 dark:text-neutral-400">Status:</span>
+                      <span className="capitalize text-neutral-800 dark:text-neutral-200">{selectedNode.details.status}</span>
+                    </div>
+                  )}
+                  <div className="flex justify-between">
+                    <span className="text-neutral-500 dark:text-neutral-400">Verification:</span>
+                    <span className="font-medium text-teal-700 dark:text-teal-400 capitalize">
+                      {selectedNode.verification_status.replace('_', ' ')}
+                    </span>
+                  </div>
+                </div>
+              </div>
+
+              {/* Source Provenance Section */}
+              <div className="space-y-2">
+                <span className="font-semibold text-neutral-900 dark:text-white">Source Provenance</span>
+                <div className="p-3 rounded-lg border border-neutral-200/80 dark:border-neutral-800 space-y-2">
+                  <div className="flex items-center justify-between text-[11px] text-neutral-500">
+                    <span className="truncate">{selectedNode.document_name || 'Medical Document'}</span>
+                    <span>Page {selectedNode.source_page || 1}</span>
+                  </div>
+                  {selectedNode.source_excerpt ? (
+                    <blockquote className="pl-2 border-l-2 border-teal-500 text-[11px] text-neutral-600 dark:text-neutral-400 italic leading-relaxed">
+                      "{selectedNode.source_excerpt}"
+                    </blockquote>
+                  ) : (
+                    <p className="text-[11px] text-neutral-400 italic">Direct OCR extraction from primary record.</p>
+                  )}
+                </div>
+              </div>
+
+              {/* Extraction Confidence Section */}
+              {selectedNode.confidence_score !== undefined && (
+                <div className="space-y-1.5">
+                  <div className="flex items-center justify-between">
+                    <span className="font-semibold text-neutral-900 dark:text-white">Extraction Confidence</span>
+                    <span className="font-bold text-teal-700 dark:text-teal-400">{selectedNode.confidence_score}%</span>
+                  </div>
+                  <div className="h-1.5 w-full bg-neutral-100 dark:bg-neutral-800 rounded-full overflow-hidden">
+                    <div
+                      className={`h-full ${
+                        selectedNode.confidence_score >= 80
+                          ? 'bg-teal-500'
+                          : selectedNode.confidence_score >= 60
+                          ? 'bg-amber-500'
+                          : 'bg-rose-500'
+                      }`}
+                      style={{ width: `${selectedNode.confidence_score}%` }}
+                    />
+                  </div>
+                </div>
+              )}
+
+              {/* Direct Actions Strip */}
+              <div className="pt-2 space-y-2">
+                {/* Lab Trend Action */}
+                {(selectedNode.type === 'lab_result' || selectedNode.type === 'vital') && (
+                  <button
+                    onClick={() => handleOpenLabTrend(selectedNode)}
+                    className="w-full flex items-center justify-center gap-2 px-3 py-2 rounded-lg bg-teal-600 hover:bg-teal-700 text-white font-semibold transition-colors shadow-xs"
+                  >
+                    <TrendingUp className="w-4 h-4" />
+                    <span>View Laboratory Trend Chart</span>
+                  </button>
                 )}
+
+                {/* Inspect Source Evidence */}
+                {selectedNode.id.startsWith('fact-') && (
+                  <button
+                    onClick={() => handleInspectEvidence(selectedNode)}
+                    className="w-full flex items-center justify-center gap-2 px-3 py-2 rounded-lg border border-neutral-300 dark:border-neutral-700 hover:bg-neutral-50 dark:hover:bg-neutral-800 text-neutral-800 dark:text-neutral-200 font-medium transition-colors"
+                  >
+                    <Eye className="w-3.5 h-3.5 text-primary-600" />
+                    <span>Inspect Ground-Truth Excerpt</span>
+                  </button>
+                )}
+
+                {/* View Document directly if document_id present */}
+                {selectedNode.document_id && onInspectDocument && (
+                  <button
+                    onClick={() => onInspectDocument(selectedNode.document_id!)}
+                    className="w-full flex items-center justify-center gap-2 px-3 py-2 rounded-lg border border-neutral-300 dark:border-neutral-700 hover:bg-neutral-50 dark:hover:bg-neutral-800 text-neutral-800 dark:text-neutral-200 font-medium transition-colors"
+                  >
+                    <FolderOpen className="w-3.5 h-3.5 text-purple-600" />
+                    <span>Open Medical Record File</span>
+                  </button>
+                )}
+
+                {/* Jump to timeline */}
+                {selectedNode.id.startsWith('fact-') && onJumpToTimeline && (
+                  <button
+                    onClick={() => {
+                      const factId = parseInt(selectedNode.id.replace('fact-', ''), 10);
+                      onJumpToTimeline(factId);
+                    }}
+                    className="w-full flex items-center justify-center gap-2 px-3 py-2 rounded-lg border border-neutral-300 dark:border-neutral-700 hover:bg-neutral-50 dark:hover:bg-neutral-800 text-neutral-800 dark:text-neutral-200 font-medium transition-colors"
+                  >
+                    <Clock className="w-3.5 h-3.5 text-blue-600" />
+                    <span>Locate in Timeline History</span>
+                  </button>
+                )}
+
+                {/* Toggle Immediate Expansion */}
+                <button
+                  onClick={() => toggleExpandNode(selectedNode.id)}
+                  className="w-full flex items-center justify-center gap-2 px-3 py-2 rounded-lg border border-neutral-200 dark:border-neutral-800 hover:bg-neutral-100 dark:hover:bg-neutral-800 text-neutral-600 dark:text-neutral-400 transition-colors"
+                >
+                  {expandedNodeIds.has(selectedNode.id) ? (
+                    <>
+                      <MinusCircle className="w-3.5 h-3.5" />
+                      <span>Collapse Relationships</span>
+                    </>
+                  ) : (
+                    <>
+                      <PlusCircle className="w-3.5 h-3.5" />
+                      <span>Expand Immediate Relationships</span>
+                    </>
+                  )}
+                </button>
               </div>
             </div>
           ) : (
-            <div className="py-16 text-center text-xs text-[#536777] dark:text-[#91A3B5] space-y-2">
-              <Compass className="w-8 h-8 text-[#536777] mx-auto opacity-40" />
-              <p>Select any node or connecting edge in the graph to inspect evidence and clinical provenance.</p>
+            <div className="py-24 p-6 text-center text-xs text-neutral-400 space-y-3">
+              <Compass className="w-10 h-10 text-neutral-400 mx-auto opacity-40" />
+              <p>Select any clinical entity or connecting line to inspect verified provenance and attributes.</p>
             </div>
           )}
         </div>
       </div>
 
-      {/* Evidence Provenance Modal */}
+      {/* MODALS */}
+      {/* Evidence Modal */}
       <EvidenceModal evidence={evidenceData} onClose={() => setEvidenceData(null)} />
 
       {/* Confidence Breakdown Modal */}
@@ -1036,6 +1248,15 @@ export const MedicalRelationshipMap: React.FC<MedicalRelationshipMapProps> = ({
         confidenceDetail={confidenceDetail}
         isOpen={!!confidenceDetail}
         onClose={() => setConfidenceDetail(null)}
+      />
+
+      {/* Laboratory Trend Chart Modal */}
+      <LabTrendModal
+        isOpen={labTrendModalOpen}
+        onClose={() => setLabTrendModalOpen(false)}
+        canonicalId={trendModalTarget.canonicalId}
+        testName={trendModalTarget.testName}
+        patientId={patientId}
       />
     </div>
   );

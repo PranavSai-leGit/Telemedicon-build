@@ -146,28 +146,24 @@ async def upload_document(
     resp.facts_count = len(created_facts)
     return resp
 
-@router.get("", response_model=List[DocumentResponse])
+@router.get("")
 def get_documents(
     patient_id: Optional[int] = Query(None),
+    page: Optional[int] = Query(None, ge=1),
+    page_size: Optional[int] = Query(None, ge=1, le=100),
+    search: Optional[str] = Query(None),
+    document_type: Optional[str] = Query(None),
     current_user: User = Depends(require_clinician_or_patient),
     db: Session = Depends(get_db)
 ):
     if current_user.role == UserRole.PATIENT.value:
-        docs = db.query(Document).filter(Document.patient_id == current_user.id).order_by(Document.uploaded_at.desc()).all()
-        result = []
-        for d in docs:
-            r = DocumentResponse.model_validate(d)
-            r.facts_count = len(d.facts)
-            result.append(r)
-        return result
-
+        query = db.query(Document).filter(Document.patient_id == current_user.id)
     elif current_user.role == UserRole.CLINICIAN.value:
         if not patient_id:
             raise HTTPException(
                 status_code=status.HTTP_400_BAD_REQUEST,
                 detail="Clinician request must specify patient_id."
             )
-        # Check active grant
         now = datetime.now(timezone.utc)
         active_grant = (
             db.query(SharingGrant)
@@ -186,8 +182,7 @@ def get_documents(
                 detail="No active sharing grant authorized for this patient."
             )
 
-        # Retrieve ONLY documents explicitly included in active grants
-        docs = (
+        query = (
             db.query(Document)
             .join(SharingGrantDocument, Document.id == SharingGrantDocument.document_id)
             .join(SharingGrant, SharingGrant.id == SharingGrantDocument.sharing_grant_id)
@@ -197,17 +192,54 @@ def get_documents(
                 SharingGrant.status == SharingStatus.ACTIVE.value,
                 SharingGrant.revoked_at.is_(None)
             )
-            .order_by(Document.uploaded_at.desc())
-            .all()
         )
-        result = []
+    else:
+        raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail="Access denied.")
+
+    # Search filter
+    if search and search.strip():
+        term = f"%{search.strip()}%"
+        query = query.filter(Document.uploaded_filename.ilike(term))
+
+    # Type filter
+    if document_type and document_type.strip() and document_type != "all":
+        query = query.filter(Document.document_type == document_type.strip())
+
+    total_records = query.count()
+    query = query.order_by(Document.uploaded_at.desc())
+
+    if page is not None:
+        p_size = page_size or 20
+        offset = (page - 1) * p_size
+        docs = query.offset(offset).limit(p_size).all()
+        total_pages = max(1, (total_records + p_size - 1) // p_size) if total_records > 0 else 0
+
+        items = []
         for d in docs:
             r = DocumentResponse.model_validate(d)
             r.facts_count = len(d.facts)
-            result.append(r)
-        return result
+            items.append(r)
 
-    raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail="Access denied.")
+        return {
+            "items": items,
+            "pagination": {
+                "page": page,
+                "page_size": p_size,
+                "total_records": total_records,
+                "total_pages": total_pages,
+                "has_previous": page > 1,
+                "has_next": page < total_pages
+            }
+        }
+
+    # Backward compatible full list when page is not specified
+    docs = query.all()
+    result = []
+    for d in docs:
+        r = DocumentResponse.model_validate(d)
+        r.facts_count = len(d.facts)
+        result.append(r)
+    return result
 
 @router.get("/{document_id}", response_model=DocumentDetailResponse)
 def get_document_details(

@@ -28,6 +28,8 @@ import {
 } from '../../types';
 import { EvidenceModal } from '../../components/EvidenceModal';
 import { MedicalRelationshipMap } from '../../components/MedicalRelationshipMap';
+import { LabTrendCard } from '../../components/LabTrendCard';
+import { Pagination } from '../../components/Pagination';
 import {
   LineChart as RechartsLineChart,
   Line,
@@ -56,6 +58,8 @@ export const PatientReviewPage: React.FC = () => {
   // Review Form state
   const [reviewNote, setReviewNote] = useState<Record<number, string>>({});
   const [reviewingId, setReviewingId] = useState<number | null>(null);
+  const [factsPage, setFactsPage] = useState(1);
+  const factsPageSize = 10;
 
   const fetchData = async () => {
     try {
@@ -218,6 +222,7 @@ export const PatientReviewPage: React.FC = () => {
         <MedicalRelationshipMap
           graphData={graphData}
           loading={graphLoading}
+          patientId={pId}
           onJumpToTimeline={(factId) => setActiveTab('timeline')}
         />
       )}
@@ -365,44 +370,71 @@ export const PatientReviewPage: React.FC = () => {
       {/* Tab 2: Authorized Timeline */}
       {activeTab === 'timeline' && (
         <div className="med-card p-6 space-y-4">
-          <h3 className="font-bold text-base text-slate-900 dark:text-white">
-            Authorized Chronological Facts
-          </h3>
-          <div className="divide-y divide-slate-100 dark:divide-slate-800">
-            {facts.map((fact) => (
-              <div key={fact.id} className="py-3 flex items-center justify-between gap-3 text-xs">
-                <div>
-                  <div className="flex items-center space-x-2">
-                    <span className="font-bold uppercase text-[10px] text-teal-700 dark:text-teal-400">
-                      {fact.fact_type.replace('_', ' ')}
-                    </span>
-                    <span className="text-slate-300 dark:text-slate-700">•</span>
-                    <span className="text-slate-400">{fact.event_date || 'Date unrecorded'}</span>
-                  </div>
-                  <p className="font-semibold text-slate-900 dark:text-white mt-0.5">{fact.normalized_value}</p>
-                  <p className="text-[11px] text-slate-400">Source: {fact.document_name}</p>
-                </div>
-
-                <div className="flex items-center space-x-2 shrink-0">
-                  {fact.verification_status !== 'clinician_verified' && (
-                    <button
-                      onClick={() => handleVerifyFact(fact.id)}
-                      className="med-btn-primary text-xs py-1 px-2.5"
-                    >
-                      Verify Fact
-                    </button>
-                  )}
-                  <button
-                    onClick={() => handleInspect(fact.id)}
-                    className="p-1.5 text-slate-400 hover:text-teal-700 dark:hover:text-teal-400 transition-colors"
-                    title="View ground-truth excerpt"
-                  >
-                    <Eye className="w-4 h-4" />
-                  </button>
-                </div>
-              </div>
-            ))}
+          <div className="flex items-center justify-between pb-2 border-b border-slate-100 dark:border-slate-800">
+            <div>
+              <h3 className="font-bold text-base text-slate-900 dark:text-white">
+                Authorized Chronological Facts
+              </h3>
+              <p className="text-xs text-slate-400">
+                Total documented facts: {facts.length}
+              </p>
+            </div>
           </div>
+
+          <div className="divide-y divide-slate-100 dark:divide-slate-800">
+            {facts
+              .slice((factsPage - 1) * factsPageSize, factsPage * factsPageSize)
+              .map((fact) => (
+                <div key={fact.id} className="py-3 flex items-center justify-between gap-3 text-xs">
+                  <div>
+                    <div className="flex items-center space-x-2">
+                      <span className="font-bold uppercase text-[10px] text-teal-700 dark:text-teal-400">
+                        {fact.fact_type.replace('_', ' ')}
+                      </span>
+                      <span className="text-slate-300 dark:text-slate-700">•</span>
+                      <span className="text-slate-400">{fact.event_date || 'Date unrecorded'}</span>
+                    </div>
+                    <p className="font-semibold text-slate-900 dark:text-white mt-0.5">{fact.normalized_value}</p>
+                    <p className="text-[11px] text-slate-400">Source: {fact.document_name}</p>
+                  </div>
+
+                  <div className="flex items-center space-x-2 shrink-0">
+                    {fact.verification_status !== 'clinician_verified' && (
+                      <button
+                        onClick={() => handleVerifyFact(fact.id)}
+                        className="med-btn-primary text-xs py-1 px-2.5"
+                      >
+                        Verify Fact
+                      </button>
+                    )}
+                    <button
+                      onClick={() => handleInspect(fact.id)}
+                      className="p-1.5 text-slate-400 hover:text-teal-700 dark:hover:text-teal-400 transition-colors"
+                      title="View ground-truth excerpt"
+                    >
+                      <Eye className="w-4 h-4" />
+                    </button>
+                  </div>
+                </div>
+              ))}
+
+            {facts.length === 0 && (
+              <div className="py-12 text-center text-xs text-slate-400">
+                No chronological facts available.
+              </div>
+            )}
+          </div>
+
+          {facts.length > 0 && (
+            <div className="pt-2">
+              <Pagination
+                currentPage={factsPage}
+                pageSize={factsPageSize}
+                totalRecords={facts.length}
+                onPageChange={setFactsPage}
+              />
+            </div>
+          )}
         </div>
       )}
 
@@ -410,39 +442,10 @@ export const PatientReviewPage: React.FC = () => {
       {activeTab === 'labs' && (
         <div className="space-y-6">
           {labTrends.map((series, idx) => (
-            <div
-              key={idx}
-              className="med-card p-6 space-y-4"
-            >
-              <div className="flex items-center justify-between pb-2 border-b border-slate-100 dark:border-slate-800">
-                <h4 className="font-bold text-sm text-slate-900 dark:text-white">
-                  {series.test_name} ({series.unit})
-                </h4>
-                <span className="text-xs text-slate-400">
-                  Ref Range: {series.reference_range}
-                </span>
-              </div>
-
-              <div className="h-60 w-full pt-2">
-                <ResponsiveContainer width="100%" height="100%">
-                  <RechartsLineChart data={series.data_points}>
-                    <CartesianGrid strokeDasharray="3 3" opacity={0.2} />
-                    <XAxis dataKey="date" fontSize={11} />
-                    <YAxis fontSize={11} />
-                    <Tooltip
-                      contentStyle={{
-                        backgroundColor: '#122131',
-                        borderColor: '#1C3349',
-                        borderRadius: '0.75rem',
-                        color: '#F0F6FA',
-                        fontSize: '12px',
-                      }}
-                    />
-                    <Line type="monotone" dataKey="value" stroke="#0F766E" strokeWidth={2.5} />
-                  </RechartsLineChart>
-                </ResponsiveContainer>
-              </div>
-            </div>
+            <LabTrendCard
+              key={series.canonical_id || idx}
+              series={series}
+            />
           ))}
 
           {labTrends.length === 0 && (
