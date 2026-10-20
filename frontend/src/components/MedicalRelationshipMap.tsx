@@ -29,7 +29,12 @@ import {
   MinusCircle,
   HelpCircle,
   SlidersHorizontal,
-  FolderOpen
+  FolderOpen,
+  Archive,
+  RefreshCw,
+  Sparkles,
+  ExternalLink,
+  ChevronDown
 } from 'lucide-react';
 import { GraphNode, GraphEdge, RelationshipGraphResponse, FactConfidenceDetail } from '../types';
 import { EvidenceModal } from './EvidenceModal';
@@ -45,9 +50,11 @@ interface MedicalRelationshipMapProps {
   onJumpToTimeline?: (factId: number) => void;
   onInspectDocument?: (documentId: number) => void;
   patientId?: number;
+  onRefreshGraph?: () => Promise<void>;
 }
 
 export type ClinicalGraphViewMode =
+  | 'tree'
   | 'overview'
   | 'condition_centered'
   | 'medication_centered'
@@ -60,18 +67,21 @@ export const MedicalRelationshipMap: React.FC<MedicalRelationshipMapProps> = ({
   onJumpToTimeline,
   onInspectDocument,
   patientId,
+  onRefreshGraph,
 }) => {
-  // Navigation & View Mode state
-  const [viewMode, setViewMode] = useState<ClinicalGraphViewMode>('overview');
+  // Navigation & View Mode state (Tree is default as requested)
+  const [viewMode, setViewMode] = useState<ClinicalGraphViewMode>('tree');
   const [zoom, setZoom] = useState(1);
   const [pan, setPan] = useState({ x: 0, y: 0 });
   const [isDragging, setIsDragging] = useState(false);
   const [dragStart, setDragStart] = useState({ x: 0, y: 0 });
 
+  // Tree Root Condition selection
+  const [selectedRootConditionId, setSelectedRootConditionId] = useState<string | null>(null);
+
   // Node Selection & Expansion state
   const [selectedNodeId, setSelectedNodeId] = useState<string | null>(null);
   const [selectedEdgeId, setSelectedEdgeId] = useState<string | null>(null);
-  const [hoveredNodeId, setHoveredNodeId] = useState<string | null>(null);
   const [expandedNodeIds, setExpandedNodeIds] = useState<Set<string>>(new Set());
 
   // Search & Filter state
@@ -83,6 +93,10 @@ export const MedicalRelationshipMap: React.FC<MedicalRelationshipMapProps> = ({
   const [dateFrom, setDateFrom] = useState('');
   const [dateTo, setDateTo] = useState('');
 
+  // Left sidebar tab: 'records' | 'archive'
+  const [sidebarTab, setSidebarTab] = useState<'records' | 'archive'>('records');
+  const [archiveSortOrder, setArchiveSortOrder] = useState<'desc' | 'asc'>('desc');
+
   // Sidebar records list pagination
   const [sidebarPage, setSidebarPage] = useState(1);
   const sidebarPageSize = 8;
@@ -91,17 +105,44 @@ export const MedicalRelationshipMap: React.FC<MedicalRelationshipMapProps> = ({
   const [evidenceData, setEvidenceData] = useState<any | null>(null);
   const [confidenceDetail, setConfidenceDetail] = useState<FactConfidenceDetail | null>(null);
   const [labTrendModalOpen, setLabTrendModalOpen] = useState(false);
-  const [trendModalTarget, setTrendModalTarget] = useState<{ canonicalId?: string; testName?: string }>({});
+  const [trendModalTarget, setTrendModalTarget] = useState<{ canonicalId?: string; testName?: string; documentId?: number }>({});
+  const [archiveActionLoading, setArchiveActionLoading] = useState(false);
 
   const containerRef = useRef<HTMLDivElement>(null);
 
+  // All condition nodes in graph
+  const allConditions = useMemo(() => {
+    if (!graphData) return [];
+    return graphData.nodes.filter((n) => n.type === 'condition');
+  }, [graphData]);
+
+  // Expired / Archived conditions sorted chronologically
+  const archivedConditions = useMemo(() => {
+    if (!graphData) return [];
+    const list = graphData.nodes.filter(
+      (n) => n.type === 'condition' && (n.is_archived || !n.is_active || n.is_temporary)
+    );
+    return [...list].sort((a, b) => {
+      const dateA = a.date || a.archived_date || '1970-01-01';
+      const dateB = b.date || b.archived_date || '1970-01-01';
+      return archiveSortOrder === 'desc'
+        ? dateB.localeCompare(dateA)
+        : dateA.localeCompare(dateB);
+    });
+  }, [graphData, archiveSortOrder]);
+
   // Default selection when graph loads
   useEffect(() => {
-    if (graphData && graphData.nodes.length > 0 && !selectedNodeId) {
-      // Pick first active condition or first overview node
-      const firstCond = graphData.nodes.find((n) => n.type === 'condition' && n.is_active);
-      const initialId = firstCond?.id || graphData.overview_node_ids?.[0] || graphData.nodes[0].id;
-      setSelectedNodeId(initialId);
+    if (graphData && graphData.nodes.length > 0) {
+      if (!selectedRootConditionId) {
+        const firstActiveCond = graphData.nodes.find((n) => n.type === 'condition' && n.is_active && !n.is_archived);
+        const anyCond = graphData.nodes.find((n) => n.type === 'condition');
+        const initialCondId = firstActiveCond?.id || anyCond?.id || graphData.nodes[0].id;
+        setSelectedRootConditionId(initialCondId);
+        if (!selectedNodeId) {
+          setSelectedNodeId(initialCondId);
+        }
+      }
     }
   }, [graphData]);
 
@@ -110,18 +151,23 @@ export const MedicalRelationshipMap: React.FC<MedicalRelationshipMapProps> = ({
     setSidebarPage(1);
   }, [searchQuery, filterType, statusFilter, abnormalityFilter, verificationFilter, dateFrom, dateTo]);
 
-  // Mode change handler: auto-adapt focused entity
+  // Mode change handler
   const handleViewModeChange = (mode: ClinicalGraphViewMode) => {
     setViewMode(mode);
-    setExpandedNodeIds(new Set()); // reset lazy expansions to keep clean focus
+    setExpandedNodeIds(new Set());
     setZoom(1);
     setPan({ x: 0, y: 0 });
 
     if (!graphData) return;
 
-    if (mode === 'condition_centered') {
-      const cond = graphData.nodes.find((n) => n.type === 'condition' && n.is_active) || graphData.nodes.find((n) => n.type === 'condition');
-      if (cond) setSelectedNodeId(cond.id);
+    if (mode === 'tree' || mode === 'condition_centered') {
+      const cond = graphData.nodes.find((n) => n.id === selectedRootConditionId) ||
+        graphData.nodes.find((n) => n.type === 'condition' && n.is_active) ||
+        graphData.nodes.find((n) => n.type === 'condition');
+      if (cond) {
+        setSelectedRootConditionId(cond.id);
+        setSelectedNodeId(cond.id);
+      }
     } else if (mode === 'medication_centered') {
       const med = graphData.nodes.find((n) => n.type === 'medication' && n.is_active) || graphData.nodes.find((n) => n.type === 'medication');
       if (med) setSelectedNodeId(med.id);
@@ -131,7 +177,7 @@ export const MedicalRelationshipMap: React.FC<MedicalRelationshipMapProps> = ({
     }
   };
 
-  // Lazy expansion toggle for a node
+  // Toggle node expansion
   const toggleExpandNode = (nodeId: string) => {
     setExpandedNodeIds((prev) => {
       const next = new Set(prev);
@@ -144,7 +190,7 @@ export const MedicalRelationshipMap: React.FC<MedicalRelationshipMapProps> = ({
     });
   };
 
-  // Reset view to default clinical overview
+  // Reset viewport
   const handleResetView = () => {
     setZoom(1);
     setPan({ x: 0, y: 0 });
@@ -156,14 +202,19 @@ export const MedicalRelationshipMap: React.FC<MedicalRelationshipMapProps> = ({
     setVerificationFilter('all');
     setDateFrom('');
     setDateTo('');
-    if (graphData && graphData.overview_node_ids && graphData.overview_node_ids.length > 0) {
-      setSelectedNodeId(graphData.overview_node_ids[0]);
+    if (graphData && selectedRootConditionId) {
+      setSelectedNodeId(selectedRootConditionId);
     }
   };
 
-  // Evidence and Confidence inspectors
+  // Inspect Ground-Truth Evidence Modal immediately
   const handleInspectEvidence = async (node: GraphNode) => {
-    if (!node.id.startsWith('fact-')) return;
+    if (!node.id.startsWith('fact-')) {
+      if (node.type === 'document' && node.document_id && onInspectDocument) {
+        onInspectDocument(node.document_id);
+      }
+      return;
+    }
     const factId = parseInt(node.id.replace('fact-', ''), 10);
     try {
       const ev = await api.getFactEvidence(factId);
@@ -173,6 +224,7 @@ export const MedicalRelationshipMap: React.FC<MedicalRelationshipMapProps> = ({
     }
   };
 
+  // Confidence Inspector
   const handleInspectConfidence = async (node: GraphNode) => {
     if (!node.id.startsWith('fact-')) return;
     const factId = parseInt(node.id.replace('fact-', ''), 10);
@@ -184,16 +236,50 @@ export const MedicalRelationshipMap: React.FC<MedicalRelationshipMapProps> = ({
     }
   };
 
+  // Open Lab Trend Chart Modal
   const handleOpenLabTrend = (node: GraphNode) => {
     setTrendModalTarget({
       canonicalId: node.canonical_id,
       testName: node.label,
+      documentId: node.document_id,
     });
     setLabTrendModalOpen(true);
   };
 
+  // Toggle Condition Archive (e.g. for expired fever)
+  const handleToggleArchive = async (factId: number, currentlyArchived: boolean) => {
+    setArchiveActionLoading(true);
+    try {
+      await api.archiveFact(factId, !currentlyArchived, currentlyArchived ? undefined : 'Temporary acute episode expired or marked resolved.');
+      if (onRefreshGraph) {
+        await onRefreshGraph();
+      } else {
+        window.location.reload();
+      }
+    } catch (err: any) {
+      console.error('Failed to toggle condition archive status:', err);
+      alert(err.message || 'Failed to update condition archive status.');
+    } finally {
+      setArchiveActionLoading(false);
+    }
+  };
+
+  // Node Click: "on clicking give the evidence"
+  const handleNodeClick = async (node: GraphNode) => {
+    setSelectedNodeId(node.id);
+    setSelectedEdgeId(null);
+
+    // If a condition is clicked, set it as tree root
+    if (node.type === 'condition') {
+      setSelectedRootConditionId(node.id);
+    }
+
+    // Immediately inspect evidence on click as requested
+    await handleInspectEvidence(node);
+  };
+
   // Styling helper for Node types
-  const getNodeColorConfig = (type: string, isAbnormal = false, isConflict = false) => {
+  const getNodeColorConfig = (type: string, isAbnormal = false, isConflict = false, isArchived = false) => {
     if (isConflict) {
       return {
         bg: 'bg-amber-50 dark:bg-amber-950/40',
@@ -212,6 +298,16 @@ export const MedicalRelationshipMap: React.FC<MedicalRelationshipMapProps> = ({
         text: 'text-rose-900 dark:text-rose-200',
         badge: 'med-badge-danger',
         icon: AlertTriangle,
+      };
+    }
+    if (isArchived) {
+      return {
+        bg: 'bg-amber-50/60 dark:bg-amber-950/20',
+        border: 'border-amber-300/80 dark:border-amber-800',
+        accent: '#B45309',
+        text: 'text-amber-800 dark:text-amber-300',
+        badge: 'med-badge-neutral',
+        icon: Clock,
       };
     }
 
@@ -265,7 +361,7 @@ export const MedicalRelationshipMap: React.FC<MedicalRelationshipMapProps> = ({
     }
   };
 
-  // Main computation for visible nodes, layout positions, and connectivity
+  // Main computation for visible nodes, tree structure, layout positions, and connectivity
   const {
     visibleNodes,
     visibleEdges,
@@ -275,6 +371,7 @@ export const MedicalRelationshipMap: React.FC<MedicalRelationshipMapProps> = ({
     allFilteredNodes,
     paginatedSidebarNodes,
     totalSidebarRecords,
+    treeStructure,
   } = useMemo(() => {
     if (!graphData || !graphData.nodes.length) {
       return {
@@ -286,12 +383,12 @@ export const MedicalRelationshipMap: React.FC<MedicalRelationshipMapProps> = ({
         allFilteredNodes: [],
         paginatedSidebarNodes: [],
         totalSidebarRecords: 0,
+        treeStructure: null,
       };
     }
 
-    // 1. Filter ALL nodes based on user search and filters (for the sidebar matching records list)
+    // 1. Filter ALL nodes based on user search and filters
     const filteredNodes = graphData.nodes.filter((node) => {
-      // Search query
       if (searchQuery) {
         const q = searchQuery.toLowerCase();
         const matchLabel = node.label.toLowerCase().includes(q);
@@ -300,109 +397,228 @@ export const MedicalRelationshipMap: React.FC<MedicalRelationshipMapProps> = ({
         const matchVal = JSON.stringify(node.details).toLowerCase().includes(q);
         if (!matchLabel && !matchCat && !matchDoc && !matchVal) return false;
       }
-
-      // Type filter
-      if (filterType !== 'all' && node.type !== filterType) {
-        return false;
-      }
-
-      // Status filter
-      if (statusFilter === 'active_only' && !node.is_active) return false;
-      if (statusFilter === 'inactive_only' && node.is_active) return false;
-
-      // Abnormality filter
+      if (filterType !== 'all' && node.type !== filterType) return false;
+      if (statusFilter === 'active_only' && (!node.is_active || node.is_archived)) return false;
+      if (statusFilter === 'inactive_only' && node.is_active && !node.is_archived) return false;
       if (abnormalityFilter === 'abnormal_only' && !node.is_abnormal) return false;
       if (abnormalityFilter === 'normal_only' && node.is_abnormal) return false;
-
-      // Verification filter
       if (verificationFilter === 'verified' && node.verification_status !== 'clinician_verified' && node.verification_status !== 'verified') return false;
       if (verificationFilter === 'unverified' && (node.verification_status === 'clinician_verified' || node.verification_status === 'verified')) return false;
-
-      // Date range filter
       if (dateFrom && node.date && node.date < dateFrom) return false;
       if (dateTo && node.date && node.date > dateTo) return false;
-
       return true;
     });
 
-    // 2. Determine VISIBLE graph nodes based on active view mode and lazy expansion
+    const positions = new Map<string, { x: number; y: number }>();
     let targetVisibleIds = new Set<string>();
+    let customTreeEdges: GraphEdge[] = [];
+    let treeData: any = null;
 
-    if (viewMode === 'overview') {
-      // Clean Clinical Overview: display curated high-priority subset
+    if (viewMode === 'tree') {
+      // ==========================================
+      // TREE VIEW MODE: User-Selected Condition as Root Node
+      // ==========================================
+      const rootConditionNode =
+        graphData.nodes.find((n) => n.id === selectedRootConditionId) ||
+        graphData.nodes.find((n) => n.type === 'condition' && n.is_active) ||
+        graphData.nodes.find((n) => n.type === 'condition') ||
+        graphData.nodes[0];
+
+      targetVisibleIds.add(rootConditionNode.id);
+
+      // Find all direct 1-hop connections from graph edges
+      const directlyConnectedIds = new Set<string>();
+      graphData.edges.forEach((e) => {
+        if (e.source === rootConditionNode.id) directlyConnectedIds.add(e.target);
+        if (e.target === rootConditionNode.id) directlyConnectedIds.add(e.source);
+      });
+
+      // Also gather facts sharing the same source document if direct edges are sparse
+      const rootDocId = rootConditionNode.document_id;
+      const coDocumentedIds = new Set<string>();
+      if (rootDocId) {
+        graphData.nodes.forEach((n) => {
+          if (n.document_id === rootDocId && n.id !== rootConditionNode.id) {
+            coDocumentedIds.add(n.id);
+          }
+        });
+      }
+
+      // Group into canonical clinical branches
+      const branchMeds: GraphNode[] = [];
+      const branchLabs: GraphNode[] = [];
+      const branchDocs: GraphNode[] = [];
+      const branchOthers: GraphNode[] = [];
+
+      graphData.nodes.forEach((n) => {
+        if (n.id === rootConditionNode.id) return;
+        const isLinked = directlyConnectedIds.has(n.id) || coDocumentedIds.has(n.id);
+        if (!isLinked && directlyConnectedIds.size > 0) return; // Keep clean focus if edges exist
+
+        if (n.type === 'medication') branchMeds.push(n);
+        else if (n.type === 'lab_result' || n.type === 'vital') branchLabs.push(n);
+        else if (n.type === 'document') branchDocs.push(n);
+        else if (n.type === 'condition' || n.type === 'allergy') branchOthers.push(n);
+      });
+
+      // If document node isn't present, make sure root document is included
+      if (rootDocId && !branchDocs.some((d) => d.id === `doc-${rootDocId}`)) {
+        const docNode = graphData.nodes.find((n) => n.id === `doc-${rootDocId}`);
+        if (docNode) branchDocs.push(docNode);
+      }
+
+      // Add all to visible IDs
+      branchMeds.forEach((n) => targetVisibleIds.add(n.id));
+      branchLabs.forEach((n) => targetVisibleIds.add(n.id));
+      branchDocs.forEach((n) => targetVisibleIds.add(n.id));
+      branchOthers.forEach((n) => targetVisibleIds.add(n.id));
+
+      // Calculate Tree Coordinates (Horizontal hierarchical tree: Root Left -> Categories -> Leaves Right)
+      const rootX = 140;
+      const branchHubX = 480;
+      const leafX = 840;
+
+      // Calculate total vertical height
+      const totalLeaves = Math.max(1, branchMeds.length + branchLabs.length + branchDocs.length + branchOthers.length);
+      const rowGap = 88;
+      const totalHeight = Math.max(650, totalLeaves * rowGap);
+      const rootY = totalHeight / 2;
+
+      // Root position
+      positions.set(rootConditionNode.id, { x: rootX, y: rootY });
+
+      let currentLeafY = 60;
+      const branchHubs: Array<{ id: string; label: string; type: string; color: string; x: number; y: number; leafCount: number }> = [];
+
+      const layoutBranch = (items: GraphNode[], branchKey: string, branchLabel: string, color: string, relLabel: string) => {
+        if (items.length === 0) return;
+        const startY = currentLeafY;
+        items.forEach((item) => {
+          positions.set(item.id, { x: leafX, y: currentLeafY });
+          currentLeafY += rowGap;
+
+          // Connect category hub to leaf
+          customTreeEdges.push({
+            id: `tree-edge-${branchKey}-${item.id}`,
+            source: branchKey,
+            target: item.id,
+            label: relLabel,
+            relationship_type: branchKey,
+            relationship_nature: directlyConnectedIds.has(item.id) ? 'explicit_documented' : 'inferred',
+            status: item.verification_status,
+          });
+        });
+
+        const midBranchY = (startY + (currentLeafY - rowGap)) / 2;
+        positions.set(branchKey, { x: branchHubX, y: midBranchY });
+        branchHubs.push({
+          id: branchKey,
+          label: branchLabel,
+          type: branchKey,
+          color,
+          x: branchHubX,
+          y: midBranchY,
+          leafCount: items.length,
+        });
+
+        // Connect Root to category hub
+        customTreeEdges.push({
+          id: `tree-edge-root-${branchKey}`,
+          source: rootConditionNode.id,
+          target: branchKey,
+          label: branchLabel,
+          relationship_type: branchKey,
+          relationship_nature: 'explicit_documented',
+          status: 'verified',
+        });
+      };
+
+      layoutBranch(branchMeds, 'branch-meds', 'Medications & Treatments', '#0F766E', 'Treats / Manages');
+      layoutBranch(branchLabs, 'branch-labs', 'Laboratory Biomarkers', '#059669', 'Monitors / Diagnoses');
+      layoutBranch(branchDocs, 'branch-docs', 'Supporting Documents', '#7C3AED', 'Documented In');
+      layoutBranch(branchOthers, 'branch-others', 'Related Symptoms & History', '#2563EB', 'Associated With');
+
+      treeData = {
+        rootNode: rootConditionNode,
+        branchHubs,
+        branchCounts: {
+          meds: branchMeds.length,
+          labs: branchLabs.length,
+          docs: branchDocs.length,
+          others: branchOthers.length,
+        },
+      };
+    } else if (viewMode === 'timeline') {
+      // Horizontal Timeline Layout
+      const sorted = [...filteredNodes].filter((n) => n.type !== 'document').sort((a, b) => (a.date || '').localeCompare(b.date || ''));
+      sorted.slice(0, 16).forEach((n) => targetVisibleIds.add(n.id));
+      if (selectedNodeId) targetVisibleIds.add(selectedNodeId);
+
+      const visSorted = filteredNodes.filter((n) => targetVisibleIds.has(n.id));
+      visSorted.forEach((node, idx) => {
+        const x = 120 + idx * 240;
+        const y = 320 + (idx % 2 === 0 ? -90 : 90);
+        positions.set(node.id, { x, y });
+      });
+    } else if (viewMode === 'condition_centered' || viewMode === 'medication_centered' || viewMode === 'lab_centered') {
+      // Radial layout
+      const centerNode = graphData.nodes.find((n) => n.id === selectedNodeId) || graphData.nodes[0];
+      targetVisibleIds.add(centerNode.id);
+      graphData.edges.forEach((e) => {
+        if (e.source === centerNode.id) targetVisibleIds.add(e.target);
+        if (e.target === centerNode.id) targetVisibleIds.add(e.source);
+      });
+
+      const centerX = 500;
+      const centerY = 340;
+      positions.set(centerNode.id, { x: centerX, y: centerY });
+
+      const neighbors = graphData.nodes.filter((n) => n.id !== centerNode.id && targetVisibleIds.has(n.id));
+      const radius = 240;
+      const angleStep = neighbors.length > 0 ? (2 * Math.PI) / neighbors.length : 0;
+      neighbors.forEach((node, idx) => {
+        const angle = idx * angleStep - Math.PI / 2;
+        const x = centerX + radius * Math.cos(angle);
+        const y = centerY + radius * Math.sin(angle);
+        positions.set(node.id, { x, y });
+      });
+    } else {
+      // Clinical Overview Layout: 3 Columns
       const overviewBase = graphData.overview_node_ids && graphData.overview_node_ids.length > 0
         ? graphData.overview_node_ids
-        : graphData.nodes.slice(0, 8).map((n) => n.id);
+        : graphData.nodes.slice(0, 10).map((n) => n.id);
       overviewBase.forEach((id) => targetVisibleIds.add(id));
-
-      // Always include selected node if any
       if (selectedNodeId) targetVisibleIds.add(selectedNodeId);
 
-      // Include user-expanded nodes and their 1-hop connections
-      expandedNodeIds.forEach((expId) => {
-        targetVisibleIds.add(expId);
-        graphData.edges.forEach((e) => {
-          if (e.source === expId) targetVisibleIds.add(e.target);
-          if (e.target === expId) targetVisibleIds.add(e.source);
+      const vis = graphData.nodes.filter((n) => targetVisibleIds.has(n.id));
+      const conditions = vis.filter((n) => n.type === 'condition');
+      const medsAndLabs = vis.filter((n) => n.type === 'medication' || n.type === 'lab_result' || n.type === 'vital');
+      const docsAndOthers = vis.filter((n) => n.type === 'document' || n.type === 'allergy');
+
+      const placeColumn = (items: GraphNode[], xCol: number, yStart = 100, yGap = 130) => {
+        items.forEach((item, index) => {
+          positions.set(item.id, { x: xCol, y: yStart + index * yGap });
         });
-      });
-    } else if (viewMode === 'condition_centered') {
-      // Condition-Centered: focus condition + related meds, monitoring labs, source docs
-      if (selectedNodeId) {
-        targetVisibleIds.add(selectedNodeId);
-        graphData.edges.forEach((e) => {
-          if (e.source === selectedNodeId) targetVisibleIds.add(e.target);
-          if (e.target === selectedNodeId) targetVisibleIds.add(e.source);
-        });
-      }
-      // Also show other conditions in a compact picker column
-      graphData.nodes.filter((n) => n.type === 'condition').forEach((n) => targetVisibleIds.add(n.id));
-    } else if (viewMode === 'medication_centered') {
-      // Medication-Centered: focus medication + indicated conditions, monitoring labs, source docs
-      if (selectedNodeId) {
-        targetVisibleIds.add(selectedNodeId);
-        graphData.edges.forEach((e) => {
-          if (e.source === selectedNodeId) targetVisibleIds.add(e.target);
-          if (e.target === selectedNodeId) targetVisibleIds.add(e.source);
-        });
-      }
-      // Also show other medications in a compact picker column
-      graphData.nodes.filter((n) => n.type === 'medication').forEach((n) => targetVisibleIds.add(n.id));
-    } else if (viewMode === 'lab_centered') {
-      // Laboratory-Centered: focus lab + monitored conditions, supporting docs
-      if (selectedNodeId) {
-        targetVisibleIds.add(selectedNodeId);
-        graphData.edges.forEach((e) => {
-          if (e.source === selectedNodeId) targetVisibleIds.add(e.target);
-          if (e.target === selectedNodeId) targetVisibleIds.add(e.source);
-        });
-      }
-      // Also show other labs in a compact picker column
-      graphData.nodes.filter((n) => n.type === 'lab_result' || n.type === 'vital').forEach((n) => targetVisibleIds.add(n.id));
-    } else if (viewMode === 'timeline') {
-      // Timeline View: sort entities chronologically and show progression
-      filteredNodes
-        .filter((n) => n.date && n.type !== 'document')
-        .slice(0, 16)
-        .forEach((n) => targetVisibleIds.add(n.id));
-      if (selectedNodeId) targetVisibleIds.add(selectedNodeId);
+      };
+
+      placeColumn(conditions, 160, 120, 140);
+      placeColumn(medsAndLabs, 500, 100, 130);
+      placeColumn(docsAndOthers, 840, 120, 140);
     }
 
-    // Filter by user search if present
-    if (searchQuery) {
-      filteredNodes.forEach((n) => targetVisibleIds.add(n.id));
-    }
-
-    // Filter visible nodes
+    // Visible nodes & edges
     const visNodes = graphData.nodes.filter((n) => targetVisibleIds.has(n.id));
     const visNodeIdSet = new Set(visNodes.map((n) => n.id));
 
-    // Visible edges (only connect visible nodes)
-    const visEdges = graphData.edges.filter(
+    let visEdges = graphData.edges.filter(
       (e) => visNodeIdSet.has(e.source) && visNodeIdSet.has(e.target)
     );
 
-    // Compute connectivity map for the currently selected node
+    if (viewMode === 'tree') {
+      visEdges = customTreeEdges;
+    }
+
+    // Connectivity map
     const connNodeIds = new Set<string>();
     const connEdgeIds = new Set<string>();
 
@@ -419,67 +635,7 @@ export const MedicalRelationshipMap: React.FC<MedicalRelationshipMapProps> = ({
       });
     }
 
-    // 3. Coordinate Layout Calculation (Clean radial & tiered layouts)
-    const positions = new Map<string, { x: number; y: number }>();
-
-    if (viewMode === 'timeline') {
-      // Horizontal Timeline Layout: chronological from left to right
-      const sorted = [...visNodes].sort((a, b) => (a.date || '').localeCompare(b.date || ''));
-      sorted.forEach((node, idx) => {
-        const x = 120 + idx * 240;
-        const y = 280 + (idx % 2 === 0 ? -90 : 90);
-        positions.set(node.id, { x, y });
-      });
-    } else if (viewMode === 'condition_centered' || viewMode === 'medication_centered' || viewMode === 'lab_centered') {
-      // Focused Radial Layout: Selected entity in center, connected neighbors orbiting neatly
-      const centerNode = visNodes.find((n) => n.id === selectedNodeId);
-      const centerX = 500;
-      const centerY = 340;
-
-      if (centerNode) {
-        positions.set(centerNode.id, { x: centerX, y: centerY });
-      }
-
-      // Separate connected neighbors from other category nodes
-      const neighbors = visNodes.filter((n) => n.id !== selectedNodeId && connNodeIds.has(n.id));
-      const others = visNodes.filter((n) => n.id !== selectedNodeId && !connNodeIds.has(n.id));
-
-      // Orbit neighbors
-      const radius = 230;
-      const angleStep = neighbors.length > 0 ? (2 * Math.PI) / neighbors.length : 0;
-      neighbors.forEach((node, idx) => {
-        const angle = idx * angleStep - Math.PI / 2;
-        const x = centerX + radius * Math.cos(angle);
-        const y = centerY + radius * Math.sin(angle);
-        positions.set(node.id, { x, y });
-      });
-
-      // Place others in a quiet secondary column on the left
-      others.forEach((node, idx) => {
-        positions.set(node.id, { x: 120, y: 120 + idx * 80 });
-      });
-    } else {
-      // Clinical Overview Layout: 3 Clean Functional Columns
-      // Left: Conditions | Center: Medications & Abnormal Labs | Right: Monitoring / Evidence
-      const conditions = visNodes.filter((n) => n.type === 'condition');
-      const medsAndLabs = visNodes.filter((n) => n.type === 'medication' || n.type === 'lab_result' || n.type === 'vital');
-      const docsAndOthers = visNodes.filter((n) => n.type === 'document' || n.type === 'allergy');
-
-      const placeColumn = (items: GraphNode[], xCol: number, yStart = 100, yGap = 130) => {
-        items.forEach((item, index) => {
-          positions.set(item.id, {
-            x: xCol,
-            y: yStart + index * yGap,
-          });
-        });
-      };
-
-      placeColumn(conditions, 160, 120, 140);
-      placeColumn(medsAndLabs, 500, 100, 130);
-      placeColumn(docsAndOthers, 840, 120, 140);
-    }
-
-    // 4. Paginate sidebar records
+    // Pagination for sidebar
     const startIdx = (sidebarPage - 1) * sidebarPageSize;
     const paginatedSidebar = filteredNodes.slice(startIdx, startIdx + sidebarPageSize);
 
@@ -492,10 +648,12 @@ export const MedicalRelationshipMap: React.FC<MedicalRelationshipMapProps> = ({
       allFilteredNodes: filteredNodes,
       paginatedSidebarNodes: paginatedSidebar,
       totalSidebarRecords: filteredNodes.length,
+      treeStructure: treeData,
     };
   }, [
     graphData,
     viewMode,
+    selectedRootConditionId,
     selectedNodeId,
     expandedNodeIds,
     searchQuery,
@@ -516,10 +674,10 @@ export const MedicalRelationshipMap: React.FC<MedicalRelationshipMapProps> = ({
 
   const selectedEdge = useMemo(() => {
     if (!graphData || !selectedEdgeId) return null;
-    return graphData.edges.find((e) => e.id === selectedEdgeId) || null;
-  }, [graphData, selectedEdgeId]);
+    return visibleEdges.find((e) => e.id === selectedEdgeId) || null;
+  }, [graphData, selectedEdgeId, visibleEdges]);
 
-  // Keyboard Navigation: Escape to clear selection, Arrow keys to navigate
+  // Keyboard navigation
   useEffect(() => {
     const handleKeyDown = (e: KeyboardEvent) => {
       if (e.key === 'Escape') {
@@ -532,17 +690,29 @@ export const MedicalRelationshipMap: React.FC<MedicalRelationshipMapProps> = ({
   }, []);
 
   return (
-    <div className="flex flex-col h-[820px] bg-neutral-50 dark:bg-neutral-950 rounded-2xl border border-neutral-200/80 dark:border-neutral-800 shadow-sm overflow-hidden select-none">
+    <div className="flex flex-col h-[850px] bg-slate-50 dark:bg-slate-950 rounded-2xl border border-slate-200/80 dark:border-slate-800 shadow-sm overflow-hidden select-none">
       {/* 1. TOP HEADER & VIEW MODE BAR */}
-      <div className="p-3 sm:px-5 sm:py-3.5 bg-white dark:bg-neutral-900 border-b border-neutral-200/80 dark:border-neutral-800 flex flex-wrap items-center justify-between gap-3">
+      <div className="p-3 sm:px-5 sm:py-3.5 bg-white dark:bg-slate-900 border-b border-slate-200/80 dark:border-slate-800 flex flex-wrap items-center justify-between gap-3">
         {/* View Modes Selector */}
-        <div className="flex items-center gap-1.5 p-1 bg-neutral-100 dark:bg-neutral-800/80 rounded-xl border border-neutral-200/60 dark:border-neutral-700/60 text-xs">
+        <div className="flex flex-wrap items-center gap-1.5 p-1 bg-slate-100 dark:bg-slate-800/80 rounded-xl border border-slate-200/60 dark:border-slate-700/60 text-xs">
+          <button
+            onClick={() => handleViewModeChange('tree')}
+            className={`flex items-center gap-1.5 px-3 py-1.5 rounded-lg font-medium transition-all ${
+              viewMode === 'tree'
+                ? 'bg-teal-600 text-white shadow-xs font-semibold'
+                : 'text-slate-600 dark:text-slate-400 hover:text-slate-900 dark:hover:text-white'
+            }`}
+          >
+            <GitBranch className="w-3.5 h-3.5" />
+            <span>Condition Tree Map</span>
+          </button>
+
           <button
             onClick={() => handleViewModeChange('overview')}
             className={`flex items-center gap-1.5 px-3 py-1.5 rounded-lg font-medium transition-all ${
               viewMode === 'overview'
-                ? 'bg-white dark:bg-neutral-900 text-primary-700 dark:text-primary-300 shadow-xs font-semibold'
-                : 'text-neutral-600 dark:text-neutral-400 hover:text-neutral-900 dark:hover:text-white'
+                ? 'bg-white dark:bg-slate-900 text-teal-700 dark:text-teal-300 shadow-xs font-semibold'
+                : 'text-slate-600 dark:text-slate-400 hover:text-slate-900 dark:hover:text-white'
             }`}
           >
             <Layers className="w-3.5 h-3.5" />
@@ -553,44 +723,20 @@ export const MedicalRelationshipMap: React.FC<MedicalRelationshipMapProps> = ({
             onClick={() => handleViewModeChange('condition_centered')}
             className={`flex items-center gap-1.5 px-3 py-1.5 rounded-lg font-medium transition-all ${
               viewMode === 'condition_centered'
-                ? 'bg-white dark:bg-neutral-900 text-blue-700 dark:text-blue-300 shadow-xs font-semibold'
-                : 'text-neutral-600 dark:text-neutral-400 hover:text-neutral-900 dark:hover:text-white'
+                ? 'bg-white dark:bg-slate-900 text-blue-700 dark:text-blue-300 shadow-xs font-semibold'
+                : 'text-slate-600 dark:text-slate-400 hover:text-slate-900 dark:hover:text-white'
             }`}
           >
             <Activity className="w-3.5 h-3.5" />
-            <span>Condition-Centered</span>
-          </button>
-
-          <button
-            onClick={() => handleViewModeChange('medication_centered')}
-            className={`flex items-center gap-1.5 px-3 py-1.5 rounded-lg font-medium transition-all ${
-              viewMode === 'medication_centered'
-                ? 'bg-white dark:bg-neutral-900 text-teal-700 dark:text-teal-300 shadow-xs font-semibold'
-                : 'text-neutral-600 dark:text-neutral-400 hover:text-neutral-900 dark:hover:text-white'
-            }`}
-          >
-            <Pill className="w-3.5 h-3.5" />
-            <span>Medication-Centered</span>
-          </button>
-
-          <button
-            onClick={() => handleViewModeChange('lab_centered')}
-            className={`flex items-center gap-1.5 px-3 py-1.5 rounded-lg font-medium transition-all ${
-              viewMode === 'lab_centered'
-                ? 'bg-white dark:bg-neutral-900 text-emerald-700 dark:text-emerald-300 shadow-xs font-semibold'
-                : 'text-neutral-600 dark:text-neutral-400 hover:text-neutral-900 dark:hover:text-white'
-            }`}
-          >
-            <FlaskConical className="w-3.5 h-3.5" />
-            <span>Laboratory-Centered</span>
+            <span>Radial View</span>
           </button>
 
           <button
             onClick={() => handleViewModeChange('timeline')}
             className={`flex items-center gap-1.5 px-3 py-1.5 rounded-lg font-medium transition-all ${
               viewMode === 'timeline'
-                ? 'bg-white dark:bg-neutral-900 text-purple-700 dark:text-purple-300 shadow-xs font-semibold'
-                : 'text-neutral-600 dark:text-neutral-400 hover:text-neutral-900 dark:hover:text-white'
+                ? 'bg-white dark:bg-slate-900 text-purple-700 dark:text-purple-300 shadow-xs font-semibold'
+                : 'text-slate-600 dark:text-slate-400 hover:text-slate-900 dark:hover:text-white'
             }`}
           >
             <Clock className="w-3.5 h-3.5" />
@@ -598,66 +744,109 @@ export const MedicalRelationshipMap: React.FC<MedicalRelationshipMapProps> = ({
           </button>
         </div>
 
-        {/* Global Graph Controls (Zoom, Reset, Clear) */}
+        {/* Global Controls */}
         <div className="flex items-center gap-1.5">
           <button
             onClick={() => setZoom((z) => Math.min(1.8, z + 0.15))}
-            className="p-1.5 rounded-lg border border-neutral-200 dark:border-neutral-700 hover:bg-neutral-100 dark:hover:bg-neutral-800 text-neutral-600 dark:text-neutral-300 transition-colors"
+            className="p-1.5 rounded-lg border border-slate-200 dark:border-slate-700 hover:bg-slate-100 dark:hover:bg-slate-800 text-slate-600 dark:text-slate-300 transition-colors"
             title="Zoom In"
           >
             <ZoomIn className="w-4 h-4" />
           </button>
           <button
             onClick={() => setZoom((z) => Math.max(0.4, z - 0.15))}
-            className="p-1.5 rounded-lg border border-neutral-200 dark:border-neutral-700 hover:bg-neutral-100 dark:hover:bg-neutral-800 text-neutral-600 dark:text-neutral-300 transition-colors"
+            className="p-1.5 rounded-lg border border-slate-200 dark:border-slate-700 hover:bg-slate-100 dark:hover:bg-slate-800 text-slate-600 dark:text-slate-300 transition-colors"
             title="Zoom Out"
           >
             <ZoomOut className="w-4 h-4" />
           </button>
           <button
             onClick={handleResetView}
-            className="flex items-center gap-1 px-2.5 py-1.5 rounded-lg border border-neutral-200 dark:border-neutral-700 hover:bg-neutral-100 dark:hover:bg-neutral-800 text-xs font-medium text-neutral-700 dark:text-neutral-300 transition-colors"
+            className="flex items-center gap-1 px-2.5 py-1.5 rounded-lg border border-slate-200 dark:border-slate-700 hover:bg-slate-100 dark:hover:bg-slate-800 text-xs font-medium text-slate-700 dark:text-slate-300 transition-colors"
             title="Reset View"
           >
             <RotateCcw className="w-3.5 h-3.5" />
-            <span>Reset View</span>
+            <span>Reset</span>
           </button>
-          {selectedNodeId && (
-            <button
-              onClick={() => {
-                setSelectedNodeId(null);
-                setSelectedEdgeId(null);
-              }}
-              className="p-1.5 rounded-lg border border-neutral-200 dark:border-neutral-700 hover:bg-neutral-100 dark:hover:bg-neutral-800 text-xs text-neutral-500 hover:text-neutral-800 dark:hover:text-neutral-200 transition-colors"
-              title="Clear Selection"
-            >
-              <X className="w-4 h-4" />
-            </button>
-          )}
         </div>
       </div>
 
-      {/* 2. FILTER & SEARCH STRIP */}
-      <div className="px-4 py-2.5 bg-white/60 dark:bg-neutral-900/60 border-b border-neutral-200/70 dark:border-neutral-800/80 flex flex-wrap items-center justify-between gap-3 text-xs">
-        {/* Search input */}
+      {/* 2. TREE ROOT SELECTOR BAR (Prominently displayed in Tree Mode) */}
+      {viewMode === 'tree' && (
+        <div className="px-5 py-2.5 bg-teal-50/70 dark:bg-teal-950/40 border-b border-teal-200/80 dark:border-teal-900/60 flex flex-wrap items-center justify-between gap-3 text-xs">
+          <div className="flex items-center gap-2">
+            <div className="w-6 h-6 rounded-md bg-teal-600 text-white flex items-center justify-center font-bold text-xs shrink-0">
+              🌳
+            </div>
+            <span className="font-bold text-teal-950 dark:text-teal-200">
+              Select Root Condition for Hierarchy Tree:
+            </span>
+            <select
+              value={selectedRootConditionId || ''}
+              onChange={(e) => {
+                setSelectedRootConditionId(e.target.value);
+                setSelectedNodeId(e.target.value);
+              }}
+              className="px-3 py-1.5 rounded-lg bg-white dark:bg-slate-800 border border-teal-300 dark:border-teal-700 font-bold text-xs text-teal-900 dark:text-teal-200 shadow-xs focus:outline-none focus:ring-2 focus:ring-teal-500 cursor-pointer"
+            >
+              <optgroup label="Active Clinical Conditions">
+                {allConditions
+                  .filter((c) => c.is_active && !c.is_archived)
+                  .map((c) => (
+                    <option key={c.id} value={c.id}>
+                      🟢 {c.label} {c.date ? `(${c.date})` : ''}
+                    </option>
+                  ))}
+              </optgroup>
+              {allConditions.some((c) => c.is_archived || !c.is_active) && (
+                <optgroup label="Archived / Expired Conditions (Chronological)">
+                  {allConditions
+                    .filter((c) => c.is_archived || !c.is_active)
+                    .map((c) => (
+                      <option key={c.id} value={c.id}>
+                        ⏱️ {c.label} [Expired / Temporary] {c.date ? `(${c.date})` : ''}
+                      </option>
+                    ))}
+                </optgroup>
+              )}
+            </select>
+          </div>
+
+          <div className="flex items-center gap-3 text-slate-500 dark:text-slate-400 text-[11px]">
+            <span className="flex items-center gap-1 font-medium">
+              <span className="w-2 h-2 rounded-full bg-teal-500"></span> 💊 Meds: {treeStructure?.branchCounts?.meds ?? 0}
+            </span>
+            <span className="flex items-center gap-1 font-medium">
+              <span className="w-2 h-2 rounded-full bg-emerald-500"></span> 🧪 Labs: {treeStructure?.branchCounts?.labs ?? 0}
+            </span>
+            <span className="flex items-center gap-1 font-medium">
+              <span className="w-2 h-2 rounded-full bg-purple-500"></span> 📄 Docs: {treeStructure?.branchCounts?.docs ?? 0}
+            </span>
+            <span className="text-teal-700 dark:text-teal-300 font-semibold italic">
+              • Click any branch node for source evidence
+            </span>
+          </div>
+        </div>
+      )}
+
+      {/* 3. SEARCH & FILTER STRIP */}
+      <div className="px-4 py-2 bg-white/70 dark:bg-slate-900/70 border-b border-slate-200/70 dark:border-slate-800/80 flex flex-wrap items-center justify-between gap-3 text-xs">
         <div className="relative flex-1 min-w-[200px] max-w-xs">
-          <Search className="w-3.5 h-3.5 absolute left-3 top-2.5 text-neutral-400" />
+          <Search className="w-3.5 h-3.5 absolute left-3 top-2 text-slate-400" />
           <input
             type="text"
-            placeholder="Search conditions, medications, labs..."
+            placeholder="Search within graph entities..."
             value={searchQuery}
             onChange={(e) => setSearchQuery(e.target.value)}
-            className="w-full pl-8 pr-3 py-1.5 rounded-lg bg-neutral-50 dark:bg-neutral-800 border border-neutral-200 dark:border-neutral-700 text-xs text-neutral-800 dark:text-neutral-200 placeholder-neutral-400 focus:outline-none focus:ring-1 focus:ring-primary-500"
+            className="w-full pl-8 pr-3 py-1 rounded-lg bg-slate-50 dark:bg-slate-800 border border-slate-200 dark:border-slate-700 text-xs text-slate-800 dark:text-slate-200 placeholder-slate-400 focus:outline-none focus:ring-1 focus:ring-teal-500"
           />
         </div>
 
-        {/* Filters bar */}
         <div className="flex flex-wrap items-center gap-2">
-          {/* Entity Type Filter */}
           <select
             value={filterType}
             onChange={(e) => setFilterType(e.target.value)}
-            className="bg-neutral-50 dark:bg-neutral-800 border border-neutral-200 dark:border-neutral-700 rounded-lg px-2.5 py-1.5 text-xs text-neutral-700 dark:text-neutral-300 focus:outline-none focus:ring-1 focus:ring-primary-500 cursor-pointer"
+            className="bg-slate-50 dark:bg-slate-800 border border-slate-200 dark:border-slate-700 rounded-lg px-2 py-1 text-xs text-slate-700 dark:text-slate-300 cursor-pointer"
           >
             <option value="all">All Entity Types</option>
             <option value="condition">Conditions</option>
@@ -667,116 +856,213 @@ export const MedicalRelationshipMap: React.FC<MedicalRelationshipMapProps> = ({
             <option value="document">Source Documents</option>
           </select>
 
-          {/* Status Filter */}
           <select
             value={statusFilter}
             onChange={(e) => setStatusFilter(e.target.value as any)}
-            className="bg-neutral-50 dark:bg-neutral-800 border border-neutral-200 dark:border-neutral-700 rounded-lg px-2.5 py-1.5 text-xs text-neutral-700 dark:text-neutral-300 focus:outline-none focus:ring-1 focus:ring-primary-500 cursor-pointer"
+            className="bg-slate-50 dark:bg-slate-800 border border-slate-200 dark:border-slate-700 rounded-lg px-2 py-1 text-xs text-slate-700 dark:text-slate-300 cursor-pointer"
           >
-            <option value="all">All Statuses</option>
+            <option value="all">Active & Inactive</option>
             <option value="active_only">Active Only</option>
-            <option value="inactive_only">Historical / Inactive</option>
-          </select>
-
-          {/* Abnormality Filter */}
-          <select
-            value={abnormalityFilter}
-            onChange={(e) => setAbnormalityFilter(e.target.value as any)}
-            className="bg-neutral-50 dark:bg-neutral-800 border border-neutral-200 dark:border-neutral-700 rounded-lg px-2.5 py-1.5 text-xs text-neutral-700 dark:text-neutral-300 focus:outline-none focus:ring-1 focus:ring-primary-500 cursor-pointer"
-          >
-            <option value="all">All Observations</option>
-            <option value="abnormal_only">Abnormal Labs Only</option>
-            <option value="normal_only">Normal Within Range</option>
-          </select>
-
-          {/* Verification Filter */}
-          <select
-            value={verificationFilter}
-            onChange={(e) => setVerificationFilter(e.target.value as any)}
-            className="bg-neutral-50 dark:bg-neutral-800 border border-neutral-200 dark:border-neutral-700 rounded-lg px-2.5 py-1.5 text-xs text-neutral-700 dark:text-neutral-300 focus:outline-none focus:ring-1 focus:ring-primary-500 cursor-pointer"
-          >
-            <option value="all">All Verifications</option>
-            <option value="verified">Clinician Verified</option>
-            <option value="unverified">Awaiting Verification</option>
+            <option value="inactive_only">Expired / Inactive</option>
           </select>
         </div>
       </div>
 
-      {/* 3. MAIN THREE-PANE BODY */}
+      {/* 4. MAIN THREE-PANE BODY */}
       <div className="flex-1 flex overflow-hidden">
-        {/* LEFT SIDEBAR: Paginated Matching Records List */}
-        <div className="w-72 bg-white dark:bg-neutral-900 border-r border-neutral-200/80 dark:border-neutral-800 flex flex-col shrink-0">
-          <div className="p-3 border-b border-neutral-100 dark:border-neutral-800 flex items-center justify-between text-xs font-semibold text-neutral-700 dark:text-neutral-300">
-            <span>Matching Clinical Records</span>
-            <span className="px-2 py-0.5 rounded-full text-[10px] font-bold bg-neutral-100 dark:bg-neutral-800 text-neutral-600 dark:text-neutral-400">
-              {totalSidebarRecords}
-            </span>
+        {/* LEFT PANE: Tabbed Explorer (All Records vs. Expired Conditions Archive) */}
+        <div className="w-80 bg-white dark:bg-slate-900 border-r border-slate-200/80 dark:border-slate-800 flex flex-col shrink-0">
+          {/* Pane Header Tabs */}
+          <div className="flex border-b border-slate-100 dark:border-slate-800 bg-slate-50/50 dark:bg-slate-900/50 text-xs font-semibold">
+            <button
+              onClick={() => setSidebarTab('records')}
+              className={`flex-1 py-2.5 px-3 flex items-center justify-center gap-1.5 border-b-2 transition-colors ${
+                sidebarTab === 'records'
+                  ? 'border-teal-600 text-teal-700 dark:text-teal-300 bg-white dark:bg-slate-900'
+                  : 'border-transparent text-slate-500 hover:text-slate-800'
+              }`}
+            >
+              <Layers className="w-3.5 h-3.5" />
+              <span>Records ({totalSidebarRecords})</span>
+            </button>
+            <button
+              onClick={() => setSidebarTab('archive')}
+              className={`flex-1 py-2.5 px-3 flex items-center justify-center gap-1.5 border-b-2 transition-colors ${
+                sidebarTab === 'archive'
+                  ? 'border-amber-600 text-amber-700 dark:text-amber-300 bg-white dark:bg-slate-900 font-bold'
+                  : 'border-transparent text-slate-500 hover:text-slate-800'
+              }`}
+            >
+              <Archive className="w-3.5 h-3.5 text-amber-600" />
+              <span>Expired Archive ({archivedConditions.length})</span>
+            </button>
           </div>
 
-          <div className="flex-1 overflow-y-auto p-2 space-y-1.5">
-            {paginatedSidebarNodes.map((node) => {
-              const isSelected = node.id === selectedNodeId;
-              const isConn = connectedNodeIds.has(node.id);
-              const colorCfg = getNodeColorConfig(node.type, node.is_abnormal);
-              const IconComp = colorCfg.icon;
+          {/* TAB 1: ALL MATCHING RECORDS */}
+          {sidebarTab === 'records' && (
+            <div className="flex-1 flex flex-col overflow-hidden">
+              <div className="flex-1 overflow-y-auto p-2.5 space-y-1.5">
+                {paginatedSidebarNodes.map((node) => {
+                  const isSelected = node.id === selectedNodeId;
+                  const isRoot = node.id === selectedRootConditionId;
+                  const colorCfg = getNodeColorConfig(node.type, node.is_abnormal, false, node.is_archived);
+                  const IconComp = colorCfg.icon;
 
-              return (
-                <div
-                  key={`sidebar-${node.id}`}
-                  onClick={() => {
-                    setSelectedNodeId(node.id);
-                    setSelectedEdgeId(null);
-                  }}
-                  className={`p-2.5 rounded-xl border text-xs cursor-pointer transition-all ${
-                    isSelected
-                      ? 'border-primary-500 bg-primary-50/70 dark:bg-primary-950/40 shadow-xs'
-                      : 'border-neutral-200/70 dark:border-neutral-800/80 hover:bg-neutral-50 dark:hover:bg-neutral-800/50'
-                  }`}
-                >
-                  <div className="flex items-center justify-between gap-1.5 mb-1">
-                    <span className="flex items-center gap-1.5 font-semibold text-neutral-900 dark:text-neutral-100 truncate">
-                      <IconComp className="w-3.5 h-3.5 shrink-0" style={{ color: colorCfg.accent }} />
-                      <span className="truncate">{node.label}</span>
-                    </span>
-                    {node.is_abnormal && (
-                      <span className="px-1.5 py-0.2 rounded text-[9px] font-bold bg-rose-100 text-rose-700 dark:bg-rose-950 dark:text-rose-400">
-                        {node.abnormality_status?.toUpperCase() || 'ABN'}
-                      </span>
-                    )}
-                  </div>
+                  return (
+                    <div
+                      key={`sidebar-${node.id}`}
+                      onClick={() => handleNodeClick(node)}
+                      className={`p-2.5 rounded-xl border text-xs cursor-pointer transition-all ${
+                        isSelected
+                          ? 'border-teal-500 bg-teal-50/70 dark:bg-teal-950/40 shadow-xs ring-1 ring-teal-500'
+                          : 'border-slate-200/70 dark:border-slate-800/80 hover:bg-slate-50 dark:hover:bg-slate-800/50'
+                      }`}
+                    >
+                      <div className="flex items-center justify-between gap-1.5 mb-1">
+                        <span className="flex items-center gap-1.5 font-semibold text-slate-900 dark:text-white truncate">
+                          <IconComp className="w-3.5 h-3.5 shrink-0" style={{ color: colorCfg.accent }} />
+                          <span className="truncate">{node.label}</span>
+                        </span>
+                        {isRoot && (
+                          <span className="px-1.5 py-0.5 rounded text-[9px] font-bold bg-teal-600 text-white">
+                            Tree Root
+                          </span>
+                        )}
+                        {node.is_archived && !isRoot && (
+                          <span className="px-1.5 py-0.5 rounded text-[9px] font-bold bg-amber-100 text-amber-800 dark:bg-amber-950 dark:text-amber-300">
+                            Expired
+                          </span>
+                        )}
+                        {node.is_abnormal && (
+                          <span className="px-1.5 py-0.5 rounded text-[9px] font-bold bg-rose-100 text-rose-700 dark:bg-rose-950 dark:text-rose-400">
+                            ABN
+                          </span>
+                        )}
+                      </div>
 
-                  <div className="flex items-center justify-between text-[11px] text-neutral-500 dark:text-neutral-400">
-                    <span className="capitalize">{node.type.replace('_', ' ')}</span>
-                    <span>{node.date || 'No date'}</span>
-                  </div>
-                </div>
-              );
-            })}
-
-            {paginatedSidebarNodes.length === 0 && (
-              <div className="py-12 text-center text-xs text-neutral-400">
-                No clinical records match current filters.
+                      <div className="flex items-center justify-between text-[11px] text-slate-500 dark:text-slate-400">
+                        <span className="capitalize">{node.type.replace('_', ' ')}</span>
+                        <span>{node.date || 'No date'}</span>
+                      </div>
+                    </div>
+                  );
+                })}
               </div>
-            )}
-          </div>
 
-          {/* Sidebar Pagination Component */}
-          <div className="p-2 border-t border-neutral-100 dark:border-neutral-800 bg-neutral-50/50 dark:bg-neutral-900/50">
-            <Pagination
-              currentPage={sidebarPage}
-              pageSize={sidebarPageSize}
-              totalRecords={totalSidebarRecords}
-              onPageChange={setSidebarPage}
-              className="py-1 px-2 border-none bg-transparent shadow-none"
-            />
-          </div>
+              {totalSidebarRecords > sidebarPageSize && (
+                <div className="p-2 border-t border-slate-100 dark:border-slate-800">
+                  <Pagination
+                    currentPage={sidebarPage}
+                    totalPages={Math.ceil(totalSidebarRecords / sidebarPageSize)}
+                    pageSize={sidebarPageSize}
+                    totalRecords={totalSidebarRecords}
+                    onPageChange={setSidebarPage}
+                  />
+                </div>
+              )}
+            </div>
+          )}
+
+          {/* TAB 2: ARCHIVE FOR EXPIRED CONDITIONS (Sorted Chronologically) */}
+          {sidebarTab === 'archive' && (
+            <div className="flex-1 flex flex-col overflow-hidden">
+              <div className="p-2.5 border-b border-slate-100 dark:border-slate-800 bg-amber-50/50 dark:bg-amber-950/20 flex items-center justify-between text-xs">
+                <span className="text-[11px] font-semibold text-amber-900 dark:text-amber-300">
+                  Chronological Order ({archiveSortOrder === 'desc' ? 'Newest First' : 'Oldest First'})
+                </span>
+                <button
+                  onClick={() => setArchiveSortOrder((s) => (s === 'desc' ? 'asc' : 'desc'))}
+                  className="px-2 py-0.5 rounded bg-white dark:bg-slate-800 border border-amber-300 dark:border-amber-700 text-[10px] font-bold text-amber-800 dark:text-amber-300"
+                >
+                  {archiveSortOrder === 'desc' ? '⬇ Newest' : '⬆ Oldest'}
+                </button>
+              </div>
+
+              <div className="flex-1 overflow-y-auto p-2.5 space-y-2">
+                {archivedConditions.length > 0 ? (
+                  archivedConditions.map((cond) => {
+                    const isRoot = cond.id === selectedRootConditionId;
+                    return (
+                      <div
+                        key={`archive-${cond.id}`}
+                        className={`p-3 rounded-xl border text-xs space-y-2 transition-all ${
+                          isRoot
+                            ? 'border-teal-500 bg-teal-50/70 dark:bg-teal-950/40 ring-1 ring-teal-500'
+                            : 'border-amber-200/80 dark:border-amber-900/60 bg-amber-50/30 dark:bg-amber-950/20 hover:bg-amber-50/60'
+                        }`}
+                      >
+                        <div className="flex items-start justify-between gap-1.5">
+                          <div>
+                            <span className="font-bold text-slate-900 dark:text-white flex items-center gap-1.5">
+                              <Clock className="w-3.5 h-3.5 text-amber-600 shrink-0" />
+                              <span>{cond.label}</span>
+                            </span>
+                            <span className="inline-block mt-0.5 px-2 py-0.5 rounded-full text-[9px] font-bold bg-amber-100 dark:bg-amber-950 text-amber-800 dark:text-amber-300">
+                              {cond.is_temporary ? 'Temporary Condition (Expired)' : 'Historical / Resolved'}
+                            </span>
+                          </div>
+                          {isRoot && (
+                            <span className="px-2 py-0.5 rounded text-[9px] font-bold bg-teal-600 text-white shrink-0">
+                              Active Tree Root
+                            </span>
+                          )}
+                        </div>
+
+                        {cond.archive_reason && (
+                          <p className="text-[11px] text-amber-900/80 dark:text-amber-300/80 italic leading-snug">
+                            Reason: {cond.archive_reason}
+                          </p>
+                        )}
+
+                        <div className="text-[10px] text-slate-500 space-y-0.5 pt-1 border-t border-slate-200/50 dark:border-slate-800/50">
+                          <div>Event Date: {cond.date || 'Unrecorded'}</div>
+                          {cond.archived_date && <div>Archived / Expired: {cond.archived_date}</div>}
+                          {cond.document_name && <div className="truncate">Source: {cond.document_name}</div>}
+                        </div>
+
+                        {/* Actions for this archived condition */}
+                        <div className="pt-1 flex items-center gap-1.5">
+                          <button
+                            type="button"
+                            onClick={() => {
+                              setSelectedRootConditionId(cond.id);
+                              setSelectedNodeId(cond.id);
+                              setViewMode('tree');
+                            }}
+                            className="flex-1 py-1 px-2 rounded-lg bg-teal-600 hover:bg-teal-700 text-white font-semibold text-[10px] flex items-center justify-center gap-1 transition-colors"
+                          >
+                            <GitBranch className="w-3 h-3" />
+                            <span>Set as Tree Root</span>
+                          </button>
+                          <button
+                            type="button"
+                            onClick={() => handleInspectEvidence(cond)}
+                            className="py-1 px-2 rounded-lg bg-white dark:bg-slate-800 border border-slate-300 dark:border-slate-700 hover:bg-slate-100 text-slate-700 dark:text-slate-200 text-[10px] font-medium flex items-center gap-1"
+                            title="Inspect ground-truth clinical source excerpt"
+                          >
+                            <Eye className="w-3 h-3 text-teal-600" />
+                            <span>Evidence</span>
+                          </button>
+                        </div>
+                      </div>
+                    );
+                  })
+                ) : (
+                  <div className="py-16 text-center text-xs text-slate-400 space-y-2">
+                    <Clock className="w-8 h-8 mx-auto text-slate-300 dark:text-slate-700 opacity-60" />
+                    <p>No expired temporary conditions currently archived.</p>
+                  </div>
+                )}
+              </div>
+            </div>
+          )}
         </div>
 
-        {/* CENTER PANE: Interactive Clinical Canvas */}
+        {/* CENTER PANE: SVG INTERACTIVE CANVAS */}
         <div
           ref={containerRef}
           onMouseDown={(e) => {
-            if (e.target === containerRef.current || (e.target as HTMLElement).tagName === 'svg') {
+            if (e.button === 0) {
               setIsDragging(true);
               setDragStart({ x: e.clientX - pan.x, y: e.clientY - pan.y });
             }
@@ -788,9 +1074,9 @@ export const MedicalRelationshipMap: React.FC<MedicalRelationshipMapProps> = ({
           }}
           onMouseUp={() => setIsDragging(false)}
           onMouseLeave={() => setIsDragging(false)}
-          className="flex-1 relative overflow-hidden bg-dot-pattern cursor-grab active:cursor-grabbing bg-neutral-50/40 dark:bg-neutral-950"
+          className="flex-1 relative overflow-hidden bg-dot-pattern cursor-grab active:cursor-grabbing bg-slate-50/50 dark:bg-slate-950"
         >
-          {/* Canvas SVG for Rendered Nodes and Edges */}
+          {/* Canvas SVG */}
           <svg
             className="w-full h-full pointer-events-auto"
             style={{
@@ -800,41 +1086,42 @@ export const MedicalRelationshipMap: React.FC<MedicalRelationshipMapProps> = ({
             }}
           >
             <defs>
-              <marker
-                id="arrowhead-verified"
-                markerWidth="8"
-                markerHeight="6"
-                refX="7"
-                refY="3"
-                orient="auto"
-              >
+              <marker id="arrow-teal" markerWidth="8" markerHeight="6" refX="7" refY="3" orient="auto">
                 <polygon points="0 0, 8 3, 0 6" fill="#0F766E" />
               </marker>
-              <marker
-                id="arrowhead-inferred"
-                markerWidth="8"
-                markerHeight="6"
-                refX="7"
-                refY="3"
-                orient="auto"
-              >
+              <marker id="arrow-slate" markerWidth="8" markerHeight="6" refX="7" refY="3" orient="auto">
                 <polygon points="0 0, 8 3, 0 6" fill="#94A3B8" />
               </marker>
+              <filter id="glow-tree-root" x="-30%" y="-30%" width="160%" height="160%">
+                <feGaussianBlur stdDeviation="6" result="blur" />
+                <feComposite in="SourceGraphic" in2="blur" operator="over" />
+              </filter>
             </defs>
 
-            {/* 1. EDGES */}
+            {/* 1. EDGES / TREE BRANCH CONNECTORS */}
             {visibleEdges.map((edge) => {
               const srcPos = nodePositions.get(edge.source);
               const tgtPos = nodePositions.get(edge.target);
               if (!srcPos || !tgtPos) return null;
 
-              const isConnectedToSelected =
-                edge.source === selectedNodeId || edge.target === selectedNodeId;
               const isSelectedEdge = edge.id === selectedEdgeId;
-              const isInferred = edge.relationship_nature === 'inferred';
+              const isTree = viewMode === 'tree';
+
+              // Smooth cubic bezier curved branch for tree hierarchy
+              const deltaX = tgtPos.x - srcPos.x;
+              const pathD = isTree
+                ? `M ${srcPos.x + 36} ${srcPos.y} C ${srcPos.x + deltaX * 0.5} ${srcPos.y}, ${srcPos.x + deltaX * 0.5} ${tgtPos.y}, ${tgtPos.x - 36} ${tgtPos.y}`
+                : `M ${srcPos.x} ${srcPos.y} L ${tgtPos.x} ${tgtPos.y}`;
 
               const midX = (srcPos.x + tgtPos.x) / 2;
               const midY = (srcPos.y + tgtPos.y) / 2;
+
+              let strokeColor = '#CBD5E1';
+              if (isSelectedEdge) strokeColor = '#0F766E';
+              else if (edge.relationship_type === 'branch-meds') strokeColor = '#0F766E';
+              else if (edge.relationship_type === 'branch-labs') strokeColor = '#059669';
+              else if (edge.relationship_type === 'branch-docs') strokeColor = '#7C3AED';
+              else if (edge.relationship_type === 'branch-others') strokeColor = '#2563EB';
 
               return (
                 <g
@@ -845,65 +1132,94 @@ export const MedicalRelationshipMap: React.FC<MedicalRelationshipMapProps> = ({
                   }}
                   className="cursor-pointer group"
                 >
-                  <line
-                    x1={srcPos.x}
-                    y1={srcPos.y}
-                    x2={tgtPos.x}
-                    y2={tgtPos.y}
-                    stroke={
-                      isSelectedEdge
-                        ? '#0F766E'
-                        : isConnectedToSelected
-                        ? '#2563EB'
-                        : isInferred
-                        ? '#94A3B8'
-                        : '#CBD5E1'
-                    }
-                    strokeWidth={isSelectedEdge || isConnectedToSelected ? 2.5 : 1.5}
-                    strokeDasharray={isInferred ? '5,5' : undefined}
-                    opacity={selectedNodeId && !isConnectedToSelected ? 0.25 : 0.85}
-                    markerEnd={isInferred ? 'url(#arrowhead-inferred)' : 'url(#arrowhead-verified)'}
+                  <path
+                    d={pathD}
+                    fill="none"
+                    stroke={strokeColor}
+                    strokeWidth={isSelectedEdge ? 3 : isTree ? 2 : 1.5}
+                    opacity={0.8}
+                    className="transition-colors group-hover:stroke-teal-600"
                   />
-
-                  {/* Edge Label Badge */}
-                  <g transform={`translate(${midX}, ${midY})`}>
-                    <rect
-                      x="-44"
-                      y="-10"
-                      width="88"
-                      height="20"
-                      rx="6"
-                      fill={isInferred ? '#F8FAFC' : '#F0FDFA'}
-                      stroke={isInferred ? '#CBD5E1' : '#99F6E4'}
-                      strokeWidth="1"
-                      className="dark:fill-neutral-800 dark:stroke-neutral-700"
-                    />
-                    <text
-                      textAnchor="middle"
-                      y="3.5"
-                      fontSize="9"
-                      fontWeight="600"
-                      fill={isInferred ? '#64748B' : '#0F766E'}
-                      className="dark:fill-teal-300"
-                    >
-                      {edge.label}
-                    </text>
-                  </g>
+                  {/* Branch label */}
+                  {isTree && edge.label && (
+                    <g transform={`translate(${midX}, ${midY})`}>
+                      <rect
+                        x="-38"
+                        y="-9"
+                        width="76"
+                        height="18"
+                        rx="5"
+                        fill="#FFFFFF"
+                        stroke={strokeColor}
+                        strokeWidth="1"
+                        className="dark:fill-slate-800"
+                      />
+                      <text
+                        textAnchor="middle"
+                        y="3"
+                        fontSize="8.5"
+                        fontWeight="600"
+                        fill={strokeColor}
+                        className="pointer-events-none select-none font-sans"
+                      >
+                        {edge.label.length > 14 ? `${edge.label.substring(0, 12)}..` : edge.label}
+                      </text>
+                    </g>
+                  )}
                 </g>
               );
             })}
 
-            {/* 2. NODES */}
+            {/* 2. CATEGORY BRANCH HUBS (in Tree Mode) */}
+            {viewMode === 'tree' &&
+              treeStructure?.branchHubs?.map((hub: any) => {
+                const pos = nodePositions.get(hub.id);
+                if (!pos) return null;
+                return (
+                  <g key={`hub-${hub.id}`} transform={`translate(${pos.x}, ${pos.y})`}>
+                    <rect
+                      x="-85"
+                      y="-22"
+                      width="170"
+                      height="44"
+                      rx="12"
+                      fill="#FFFFFF"
+                      stroke={hub.color}
+                      strokeWidth="2.5"
+                      className="shadow-md dark:fill-slate-900"
+                    />
+                    <text
+                      textAnchor="middle"
+                      y="-2"
+                      fontSize="11"
+                      fontWeight="bold"
+                      fill={hub.color}
+                      className="select-none pointer-events-none"
+                    >
+                      {hub.label}
+                    </text>
+                    <text
+                      textAnchor="middle"
+                      y="14"
+                      fontSize="9"
+                      fill="#64748B"
+                      className="select-none pointer-events-none"
+                    >
+                      {hub.leafCount} connected {hub.leafCount === 1 ? 'branch' : 'branches'}
+                    </text>
+                  </g>
+                );
+              })}
+
+            {/* 3. NODES (Root Condition, Leaves, Items) */}
             {visibleNodes.map((node) => {
               const pos = nodePositions.get(node.id);
               if (!pos) return null;
 
               const isSelected = node.id === selectedNodeId;
+              const isRoot = node.id === selectedRootConditionId;
               const isConnected = connectedNodeIds.has(node.id);
-              const isDimmed = selectedNodeId !== null && !isSelected && !isConnected;
-              const isExpanded = expandedNodeIds.has(node.id);
-
-              const colorCfg = getNodeColorConfig(node.type, node.is_abnormal);
+              const colorCfg = getNodeColorConfig(node.type, node.is_abnormal, false, node.is_archived);
               const IconComp = colorCfg.icon;
 
               return (
@@ -912,22 +1228,28 @@ export const MedicalRelationshipMap: React.FC<MedicalRelationshipMapProps> = ({
                   transform={`translate(${pos.x}, ${pos.y})`}
                   onClick={(e) => {
                     e.stopPropagation();
-                    setSelectedNodeId(node.id);
-                    setSelectedEdgeId(null);
+                    handleNodeClick(node);
                   }}
-                  onDoubleClick={(e) => {
-                    e.stopPropagation();
-                    toggleExpandNode(node.id);
-                  }}
-                  className="cursor-pointer transition-transform duration-150 ease-out"
-                  opacity={isDimmed ? 0.35 : 1}
+                  className="cursor-pointer transition-transform duration-150 ease-out group"
                 >
-                  {/* Selected Focus Halo */}
-                  {isSelected && (
+                  {/* Root Glow & Distinct Styling */}
+                  {isRoot && (
                     <circle
-                      r="40"
+                      r="48"
                       fill="none"
                       stroke="#0F766E"
+                      strokeWidth="3.5"
+                      strokeDasharray="5,5"
+                      className="animate-spin-slow opacity-75"
+                    />
+                  )}
+
+                  {/* Selection Ring */}
+                  {isSelected && !isRoot && (
+                    <circle
+                      r="36"
+                      fill="none"
+                      stroke="#2563EB"
                       strokeWidth="3"
                       strokeDasharray="4,4"
                       className="animate-spin-slow"
@@ -936,60 +1258,69 @@ export const MedicalRelationshipMap: React.FC<MedicalRelationshipMapProps> = ({
 
                   {/* Main Node Circle */}
                   <circle
-                    r="28"
+                    r={isRoot ? 38 : 28}
                     fill="#FFFFFF"
-                    stroke={isSelected ? '#0F766E' : isConnected ? '#2563EB' : colorCfg.accent}
-                    strokeWidth={isSelected ? 3 : 2}
-                    className="shadow-md hover:scale-110 transition-transform dark:fill-neutral-900"
+                    stroke={isRoot ? '#0F766E' : isSelected ? '#2563EB' : colorCfg.accent}
+                    strokeWidth={isRoot ? 3.5 : isSelected ? 3 : 2}
+                    className="shadow-md group-hover:scale-105 transition-transform dark:fill-slate-900"
                   />
 
                   {/* Inner Node Icon */}
-                  <g transform="translate(-9, -9)">
-                    <IconComp className="w-4.5 h-4.5" style={{ color: colorCfg.accent }} />
+                  <g transform={isRoot ? 'translate(-12, -12)' : 'translate(-9, -9)'}>
+                    <IconComp className={isRoot ? 'w-6 h-6' : 'w-4.5 h-4.5'} style={{ color: colorCfg.accent }} />
                   </g>
+
+                  {/* Root Tag Badge */}
+                  {isRoot && (
+                    <g transform="translate(0, -48)">
+                      <rect x="-38" y="-10" width="76" height="20" rx="6" fill="#0F766E" />
+                      <text textAnchor="middle" y="4" fontSize="9" fontWeight="bold" fill="#FFFFFF">
+                        TREE ROOT
+                      </text>
+                    </g>
+                  )}
 
                   {/* Node Label Text */}
                   <text
                     textAnchor="middle"
-                    y="42"
-                    fontSize="11"
-                    fontWeight="600"
-                    fill="#1E293B"
-                    className="dark:fill-neutral-200 pointer-events-none select-none"
+                    y={isRoot ? '56' : '44'}
+                    fontSize={isRoot ? '12' : '11'}
+                    fontWeight="bold"
+                    fill="#0F172A"
+                    className="dark:fill-slate-100 pointer-events-none select-none"
                   >
-                    {node.label.length > 20 ? `${node.label.substring(0, 18)}...` : node.label}
+                    {node.label.length > 22 ? `${node.label.substring(0, 20)}...` : node.label}
                   </text>
 
-                  {/* Status / Category Subtext */}
+                  {/* Subtext (Abnormality, date, or expired status) */}
                   <text
                     textAnchor="middle"
-                    y="55"
-                    fontSize="9"
-                    fill="#64748B"
-                    className="dark:fill-neutral-400 pointer-events-none select-none"
+                    y={isRoot ? '70' : '57'}
+                    fontSize="9.5"
+                    fill={node.is_archived ? '#B45309' : node.is_abnormal ? '#E11D48' : '#64748B'}
+                    className="pointer-events-none select-none font-medium"
                   >
-                    {node.is_abnormal ? `Abnormal (${node.abnormality_status})` : node.category}
+                    {node.is_archived
+                      ? '⏱️ Expired / Archived'
+                      : node.is_abnormal
+                      ? `Abnormal (${node.abnormality_status})`
+                      : node.category}
                   </text>
 
-                  {/* Expansion indicator badge */}
-                  {isSelected && (
+                  {/* Quick 1-Click Evidence Badge */}
+                  {node.id.startsWith('fact-') && (
                     <g
-                      transform="translate(18, -18)"
+                      transform={isRoot ? 'translate(26, -26)' : 'translate(20, -20)'}
                       onClick={(e) => {
                         e.stopPropagation();
-                        toggleExpandNode(node.id);
+                        handleInspectEvidence(node);
                       }}
                     >
-                      <title>{isExpanded ? 'Collapse Connections' : 'Expand Immediate Connections'}</title>
-                      <circle r="9" fill="#0F766E" />
-                      {isExpanded ? (
-                        <line x1="-4" y1="0" x2="4" y2="0" stroke="#FFFFFF" strokeWidth="2" />
-                      ) : (
-                        <>
-                          <line x1="-4" y1="0" x2="4" y2="0" stroke="#FFFFFF" strokeWidth="2" />
-                          <line x1="0" y1="-4" x2="0" y2="4" stroke="#FFFFFF" strokeWidth="2" />
-                        </>
-                      )}
+                      <title>Click to open ground-truth source evidence excerpt</title>
+                      <circle r="10" fill="#0F766E" className="shadow-xs hover:scale-125 transition-transform" />
+                      <text textAnchor="middle" y="3" fontSize="8" fontWeight="bold" fill="#FFFFFF">
+                        EV
+                      </text>
                     </g>
                   )}
                 </g>
@@ -998,156 +1329,93 @@ export const MedicalRelationshipMap: React.FC<MedicalRelationshipMapProps> = ({
           </svg>
 
           {/* Quick Help Overlay */}
-          <div className="absolute bottom-3 left-3 px-3 py-1.5 rounded-lg bg-white/80 dark:bg-neutral-900/80 backdrop-blur-xs border border-neutral-200/60 dark:border-neutral-800 text-[11px] text-neutral-500 dark:text-neutral-400 flex items-center gap-2 pointer-events-none shadow-xs">
-            <Info className="w-3.5 h-3.5 text-primary-600" />
-            <span>Click to inspect details. Double-click to expand/collapse relationships.</span>
+          <div className="absolute bottom-3 left-3 px-3 py-1.5 rounded-lg bg-white/90 dark:bg-slate-900/90 backdrop-blur-xs border border-slate-200/60 dark:border-slate-800 text-[11px] text-slate-600 dark:text-slate-300 flex items-center gap-2 pointer-events-none shadow-xs">
+            <Info className="w-3.5 h-3.5 text-teal-600" />
+            <span>Click any node in tree to inspect ground-truth evidence. Change root condition using top selector.</span>
           </div>
         </div>
 
-        {/* RIGHT DRAWER: Redesigned Relationship Details Panel */}
-        <div className="w-96 bg-white dark:bg-neutral-900 border-l border-neutral-200/80 dark:border-neutral-800 flex flex-col shrink-0 overflow-y-auto">
-          {selectedEdge ? (
-            /* Edge Details View */
+        {/* RIGHT PANE: PROVENANCE & CLINICAL EVIDENCE INSPECTOR */}
+        <div className="w-96 bg-white dark:bg-slate-900 border-l border-slate-200/80 dark:border-slate-800 flex flex-col shrink-0 overflow-y-auto">
+          {selectedNode ? (
             <div className="p-5 space-y-4">
-              <div className="flex items-center justify-between border-b border-neutral-100 dark:border-neutral-800 pb-3">
+              {/* Header */}
+              <div className="flex items-start justify-between border-b border-slate-100 dark:border-slate-800 pb-3 gap-2">
                 <div className="space-y-0.5">
-                  <span className="text-[10px] font-bold uppercase tracking-wider text-teal-700 dark:text-teal-400">
-                    Clinical Relationship
-                  </span>
-                  <h4 className="text-base font-bold text-neutral-900 dark:text-white">
-                    {selectedEdge.label}
-                  </h4>
-                </div>
-                <span className={`px-2 py-0.5 rounded text-[10px] font-semibold ${
-                  selectedEdge.relationship_nature === 'inferred'
-                    ? 'bg-neutral-100 text-neutral-600 dark:bg-neutral-800 dark:text-neutral-400'
-                    : 'bg-teal-50 text-teal-700 dark:bg-teal-950 dark:text-teal-300'
-                }`}>
-                  {selectedEdge.relationship_nature === 'inferred' ? 'Inferred' : 'Documented'}
-                </span>
-              </div>
-
-              <div className="space-y-2 text-xs">
-                <span className="font-semibold text-neutral-700 dark:text-neutral-300">Rationale</span>
-                <p className="p-3 rounded-lg bg-neutral-50 dark:bg-neutral-800/60 text-neutral-700 dark:text-neutral-300 leading-relaxed">
-                  {selectedEdge.explanation || 'Explicit link verified from clinical report.'}
-                </p>
-              </div>
-
-              {selectedEdge.source_document_name && (
-                <div className="p-3 rounded-lg border border-neutral-200 dark:border-neutral-800 space-y-1.5 text-xs">
-                  <div className="flex items-center justify-between text-neutral-500 dark:text-neutral-400">
-                    <span>Source Report</span>
-                    <span>Page {selectedEdge.source_page || 1}</span>
+                  <div className="flex items-center gap-1.5">
+                    <span className="text-[10px] font-bold uppercase tracking-wider text-teal-600 dark:text-teal-400">
+                      {selectedNode.category}
+                    </span>
+                    {selectedNode.is_archived && (
+                      <span className="px-1.5 py-0.2 rounded text-[9px] font-bold bg-amber-100 text-amber-800 dark:bg-amber-950 dark:text-amber-300">
+                        Expired Condition
+                      </span>
+                    )}
                   </div>
-                  <p className="font-semibold text-neutral-900 dark:text-white truncate">
-                    {selectedEdge.source_document_name}
+                  <h4 className="text-base font-bold text-slate-900 dark:text-white">
+                    {selectedNode.label}
+                  </h4>
+                  {selectedNode.date && (
+                    <div className="flex items-center gap-1 text-[11px] text-slate-400">
+                      <Calendar className="w-3 h-3" />
+                      <span>{selectedNode.date}</span>
+                    </div>
+                  )}
+                </div>
+
+                <button
+                  onClick={() => setSelectedNodeId(null)}
+                  className="p-1 rounded-lg text-slate-400 hover:text-slate-600 dark:hover:text-slate-200"
+                >
+                  <X className="w-4 h-4" />
+                </button>
+              </div>
+
+              {/* Expired / Temporary Condition Banner */}
+              {selectedNode.is_archived && (
+                <div className="p-3 rounded-xl bg-amber-50 dark:bg-amber-950/30 border border-amber-200 dark:border-amber-900/50 text-xs text-amber-900 dark:text-amber-200 space-y-1">
+                  <div className="flex items-center gap-1.5 font-bold text-amber-800 dark:text-amber-300">
+                    <Clock className="w-4 h-4" />
+                    <span>Archived Temporary Condition</span>
+                  </div>
+                  <p className="text-[11px] leading-relaxed">
+                    {selectedNode.archive_reason || 'Temporary condition (such as acute fever or infection) expired after standard clinical resolution timeframe.'}
                   </p>
-                  {selectedEdge.source_excerpt && (
-                    <blockquote className="mt-2 pl-2 border-l-2 border-teal-500 text-[11px] text-neutral-600 dark:text-neutral-400 italic">
-                      "{selectedEdge.source_excerpt}"
-                    </blockquote>
+                </div>
+              )}
+
+              {/* Ground-Truth Source Excerpt */}
+              {selectedNode.source_excerpt && (
+                <div className="p-3.5 rounded-xl bg-teal-50/50 dark:bg-teal-950/30 border border-teal-200/60 dark:border-teal-900/40 space-y-1.5 text-xs">
+                  <div className="flex items-center justify-between text-teal-800 dark:text-teal-300 font-bold">
+                    <span>Source Excerpt Verification</span>
+                    <span className="text-[10px] bg-teal-100 dark:bg-teal-900/60 px-1.5 py-0.5 rounded">
+                      Page {selectedNode.source_page || 1}
+                    </span>
+                  </div>
+                  <blockquote className="text-[11px] text-slate-800 dark:text-slate-200 font-mono italic leading-relaxed">
+                    "{selectedNode.source_excerpt}"
+                  </blockquote>
+                  {selectedNode.document_name && (
+                    <div className="pt-1 text-[10px] text-slate-500 truncate">
+                      File: {selectedNode.document_name}
+                    </div>
                   )}
                 </div>
               )}
-            </div>
-          ) : selectedNode ? (
-            /* Node Details View */
-            <div className="p-5 space-y-5 text-xs">
-              {/* Header */}
-              <div className="space-y-1.5 border-b border-neutral-100 dark:border-neutral-800 pb-3">
-                <div className="flex items-center justify-between">
-                  <span className="px-2 py-0.5 rounded text-[10px] font-bold uppercase tracking-wider bg-neutral-100 dark:bg-neutral-800 text-neutral-700 dark:text-neutral-300">
-                    {selectedNode.type.replace('_', ' ')}
-                  </span>
-                  {selectedNode.is_abnormal && (
-                    <span className="px-2 py-0.5 rounded-full text-[10px] font-bold bg-rose-50 text-rose-700 dark:bg-rose-950/60 dark:text-rose-400 border border-rose-200 dark:border-rose-900/50">
-                      {selectedNode.abnormality_status?.toUpperCase() || 'ABNORMAL'}
-                    </span>
-                  )}
-                </div>
-                <h3 className="text-lg font-bold text-neutral-900 dark:text-white">
-                  {selectedNode.label}
-                </h3>
-                {selectedNode.date && (
-                  <p className="text-[11px] text-neutral-500 dark:text-neutral-400 flex items-center gap-1.5">
-                    <Calendar className="w-3.5 h-3.5" />
-                    <span>Documented: {selectedNode.date}</span>
-                  </p>
-                )}
-              </div>
 
-              {/* Clinical Attributes Section (No empty placeholders) */}
-              <div className="space-y-2">
-                <span className="font-semibold text-neutral-900 dark:text-white">Clinical Attributes</span>
-                <div className="p-3 rounded-lg bg-neutral-50 dark:bg-neutral-800/50 border border-neutral-200/60 dark:border-neutral-800 space-y-1.5">
-                  {selectedNode.details?.value && (
-                    <div className="flex justify-between">
-                      <span className="text-neutral-500 dark:text-neutral-400">Observed Result:</span>
-                      <strong className="text-neutral-900 dark:text-white">
-                        {selectedNode.details.value} {selectedNode.details.unit || selectedNode.details.standard_unit || ''}
-                      </strong>
-                    </div>
-                  )}
-                  {selectedNode.details?.reference_range && (
-                    <div className="flex justify-between">
-                      <span className="text-neutral-500 dark:text-neutral-400">Reference Range:</span>
-                      <span className="text-neutral-800 dark:text-neutral-200">{selectedNode.details.reference_range}</span>
-                    </div>
-                  )}
-                  {selectedNode.details?.dosage && (
-                    <div className="flex justify-between">
-                      <span className="text-neutral-500 dark:text-neutral-400">Dosage:</span>
-                      <strong className="text-neutral-900 dark:text-white">{selectedNode.details.dosage}</strong>
-                    </div>
-                  )}
-                  {selectedNode.details?.frequency && (
-                    <div className="flex justify-between">
-                      <span className="text-neutral-500 dark:text-neutral-400">Frequency:</span>
-                      <span className="text-neutral-800 dark:text-neutral-200">{selectedNode.details.frequency}</span>
-                    </div>
-                  )}
-                  {selectedNode.details?.status && (
-                    <div className="flex justify-between">
-                      <span className="text-neutral-500 dark:text-neutral-400">Status:</span>
-                      <span className="capitalize text-neutral-800 dark:text-neutral-200">{selectedNode.details.status}</span>
-                    </div>
-                  )}
-                  <div className="flex justify-between">
-                    <span className="text-neutral-500 dark:text-neutral-400">Verification:</span>
-                    <span className="font-medium text-teal-700 dark:text-teal-400 capitalize">
-                      {selectedNode.verification_status.replace('_', ' ')}
-                    </span>
-                  </div>
-                </div>
-              </div>
-
-              {/* Source Provenance Section */}
-              <div className="space-y-2">
-                <span className="font-semibold text-neutral-900 dark:text-white">Source Provenance</span>
-                <div className="p-3 rounded-lg border border-neutral-200/80 dark:border-neutral-800 space-y-2">
-                  <div className="flex items-center justify-between text-[11px] text-neutral-500">
-                    <span className="truncate">{selectedNode.document_name || 'Medical Document'}</span>
-                    <span>Page {selectedNode.source_page || 1}</span>
-                  </div>
-                  {selectedNode.source_excerpt ? (
-                    <blockquote className="pl-2 border-l-2 border-teal-500 text-[11px] text-neutral-600 dark:text-neutral-400 italic leading-relaxed">
-                      "{selectedNode.source_excerpt}"
-                    </blockquote>
-                  ) : (
-                    <p className="text-[11px] text-neutral-400 italic">Direct OCR extraction from primary record.</p>
-                  )}
-                </div>
-              </div>
-
-              {/* Extraction Confidence Section */}
+              {/* Confidence & Verification Status */}
               {selectedNode.confidence_score !== undefined && (
-                <div className="space-y-1.5">
+                <div className="p-3 rounded-xl bg-slate-50 dark:bg-slate-800/50 border border-slate-200/60 dark:border-slate-800 space-y-2 text-xs">
                   <div className="flex items-center justify-between">
-                    <span className="font-semibold text-neutral-900 dark:text-white">Extraction Confidence</span>
-                    <span className="font-bold text-teal-700 dark:text-teal-400">{selectedNode.confidence_score}%</span>
+                    <span className="font-semibold text-slate-700 dark:text-slate-300">Evidence Confidence</span>
+                    <ConfidenceBadge
+                      score={selectedNode.confidence_score}
+                      label={selectedNode.confidence_label as any}
+                      onClick={() => handleInspectConfidence(selectedNode)}
+                    />
                   </div>
-                  <div className="h-1.5 w-full bg-neutral-100 dark:bg-neutral-800 rounded-full overflow-hidden">
+                  <div className="h-1.5 w-full bg-slate-200 dark:bg-slate-700 rounded-full overflow-hidden">
                     <div
                       className={`h-full ${
                         selectedNode.confidence_score >= 80
@@ -1162,78 +1430,79 @@ export const MedicalRelationshipMap: React.FC<MedicalRelationshipMapProps> = ({
                 </div>
               )}
 
-              {/* Direct Actions Strip */}
+              {/* Action Buttons */}
               <div className="pt-2 space-y-2">
-                {/* Lab Trend Action */}
-                {(selectedNode.type === 'lab_result' || selectedNode.type === 'vital') && (
-                  <button
-                    onClick={() => handleOpenLabTrend(selectedNode)}
-                    className="w-full flex items-center justify-center gap-2 px-3 py-2 rounded-lg bg-teal-600 hover:bg-teal-700 text-white font-semibold transition-colors shadow-xs"
-                  >
-                    <TrendingUp className="w-4 h-4" />
-                    <span>View Laboratory Trend Chart</span>
-                  </button>
-                )}
-
-                {/* Inspect Source Evidence */}
+                {/* 1. Inspect Ground-Truth Evidence */}
                 {selectedNode.id.startsWith('fact-') && (
                   <button
                     onClick={() => handleInspectEvidence(selectedNode)}
-                    className="w-full flex items-center justify-center gap-2 px-3 py-2 rounded-lg border border-neutral-300 dark:border-neutral-700 hover:bg-neutral-50 dark:hover:bg-neutral-800 text-neutral-800 dark:text-neutral-200 font-medium transition-colors"
+                    className="w-full flex items-center justify-center gap-2 px-3 py-2 rounded-xl bg-teal-600 hover:bg-teal-700 text-white font-semibold text-xs shadow-xs transition-colors"
                   >
-                    <Eye className="w-3.5 h-3.5 text-primary-600" />
-                    <span>Inspect Ground-Truth Excerpt</span>
+                    <Eye className="w-4 h-4" />
+                    <span>Inspect Ground-Truth Evidence Modal</span>
                   </button>
                 )}
 
-                {/* View Document directly if document_id present */}
+                {/* 2. Set as Tree Root Condition (if condition) */}
+                {selectedNode.type === 'condition' && (
+                  <button
+                    onClick={() => {
+                      setSelectedRootConditionId(selectedNode.id);
+                      setViewMode('tree');
+                    }}
+                    className="w-full flex items-center justify-center gap-2 px-3 py-2 rounded-xl border border-teal-300 dark:border-teal-700 bg-teal-50 dark:bg-teal-950/60 hover:bg-teal-100 text-teal-800 dark:text-teal-200 font-semibold text-xs transition-colors"
+                  >
+                    <GitBranch className="w-4 h-4 text-teal-600" />
+                    <span>Re-root Tree on "{selectedNode.label}"</span>
+                  </button>
+                )}
+
+                {/* 3. Archive / Restore Condition Toggle */}
+                {selectedNode.type === 'condition' && selectedNode.id.startsWith('fact-') && (
+                  <button
+                    disabled={archiveActionLoading}
+                    onClick={() => {
+                      const factId = parseInt(selectedNode.id.replace('fact-', ''), 10);
+                      handleToggleArchive(factId, Boolean(selectedNode.is_archived));
+                    }}
+                    className="w-full flex items-center justify-center gap-2 px-3 py-2 rounded-xl border border-amber-300 dark:border-amber-700 hover:bg-amber-50 dark:hover:bg-amber-950/40 text-amber-800 dark:text-amber-200 font-medium text-xs transition-colors disabled:opacity-50"
+                  >
+                    <Archive className="w-3.5 h-3.5 text-amber-600" />
+                    <span>
+                      {selectedNode.is_archived
+                        ? 'Restore Condition to Active'
+                        : 'Archive Condition (Mark Expired/Resolved)'}
+                    </span>
+                  </button>
+                )}
+
+                {/* 4. Laboratory Trend Chart (if lab test) */}
+                {(selectedNode.type === 'lab_result' || selectedNode.type === 'vital') && (
+                  <button
+                    onClick={() => handleOpenLabTrend(selectedNode)}
+                    className="w-full flex items-center justify-center gap-2 px-3 py-2 rounded-xl bg-teal-600 hover:bg-teal-700 text-white font-semibold text-xs transition-colors shadow-xs"
+                  >
+                    <TrendingUp className="w-4 h-4" />
+                    <span>Plot Laboratory Longitudinal Trend</span>
+                  </button>
+                )}
+
+                {/* 5. Open Medical Record File */}
                 {selectedNode.document_id && onInspectDocument && (
                   <button
                     onClick={() => onInspectDocument(selectedNode.document_id!)}
-                    className="w-full flex items-center justify-center gap-2 px-3 py-2 rounded-lg border border-neutral-300 dark:border-neutral-700 hover:bg-neutral-50 dark:hover:bg-neutral-800 text-neutral-800 dark:text-neutral-200 font-medium transition-colors"
+                    className="w-full flex items-center justify-center gap-2 px-3 py-2 rounded-xl border border-slate-200 dark:border-slate-700 hover:bg-slate-100 dark:hover:bg-slate-800 text-slate-800 dark:text-slate-200 font-medium text-xs transition-colors"
                   >
                     <FolderOpen className="w-3.5 h-3.5 text-purple-600" />
-                    <span>Open Medical Record File</span>
+                    <span>Open Medical Record PDF / Image</span>
                   </button>
                 )}
-
-                {/* Jump to timeline */}
-                {selectedNode.id.startsWith('fact-') && onJumpToTimeline && (
-                  <button
-                    onClick={() => {
-                      const factId = parseInt(selectedNode.id.replace('fact-', ''), 10);
-                      onJumpToTimeline(factId);
-                    }}
-                    className="w-full flex items-center justify-center gap-2 px-3 py-2 rounded-lg border border-neutral-300 dark:border-neutral-700 hover:bg-neutral-50 dark:hover:bg-neutral-800 text-neutral-800 dark:text-neutral-200 font-medium transition-colors"
-                  >
-                    <Clock className="w-3.5 h-3.5 text-blue-600" />
-                    <span>Locate in Timeline History</span>
-                  </button>
-                )}
-
-                {/* Toggle Immediate Expansion */}
-                <button
-                  onClick={() => toggleExpandNode(selectedNode.id)}
-                  className="w-full flex items-center justify-center gap-2 px-3 py-2 rounded-lg border border-neutral-200 dark:border-neutral-800 hover:bg-neutral-100 dark:hover:bg-neutral-800 text-neutral-600 dark:text-neutral-400 transition-colors"
-                >
-                  {expandedNodeIds.has(selectedNode.id) ? (
-                    <>
-                      <MinusCircle className="w-3.5 h-3.5" />
-                      <span>Collapse Relationships</span>
-                    </>
-                  ) : (
-                    <>
-                      <PlusCircle className="w-3.5 h-3.5" />
-                      <span>Expand Immediate Relationships</span>
-                    </>
-                  )}
-                </button>
               </div>
             </div>
           ) : (
-            <div className="py-24 p-6 text-center text-xs text-neutral-400 space-y-3">
-              <Compass className="w-10 h-10 text-neutral-400 mx-auto opacity-40" />
-              <p>Select any clinical entity or connecting line to inspect verified provenance and attributes.</p>
+            <div className="py-24 p-6 text-center text-xs text-slate-400 space-y-3">
+              <Compass className="w-10 h-10 text-slate-300 dark:text-slate-600 mx-auto opacity-40" />
+              <p>Click any node in the tree map to inspect verified ground-truth evidence and document provenance.</p>
             </div>
           )}
         </div>
@@ -1246,7 +1515,7 @@ export const MedicalRelationshipMap: React.FC<MedicalRelationshipMapProps> = ({
       {/* Confidence Breakdown Modal */}
       <ConfidenceInspectorModal
         confidenceDetail={confidenceDetail}
-        isOpen={!!confidenceDetail}
+        isOpen={Boolean(confidenceDetail)}
         onClose={() => setConfidenceDetail(null)}
       />
 
@@ -1256,6 +1525,7 @@ export const MedicalRelationshipMap: React.FC<MedicalRelationshipMapProps> = ({
         onClose={() => setLabTrendModalOpen(false)}
         canonicalId={trendModalTarget.canonicalId}
         testName={trendModalTarget.testName}
+        documentId={trendModalTarget.documentId}
         patientId={patientId}
       />
     </div>

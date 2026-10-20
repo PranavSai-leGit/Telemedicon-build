@@ -198,6 +198,7 @@ export const TimelinePage: React.FC = () => {
           onJumpToTimeline={(factId) => {
             setViewMode('timeline');
           }}
+          onRefreshGraph={fetchGraph}
         />
       ) : (
         <>

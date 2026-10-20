@@ -224,8 +224,11 @@ export const api = {
     ): Promise<any>;
   },
 
-  getCanonicalLabTrends: (patientId?: number) => {
-    const qs = patientId ? `?patient_id=${patientId}` : '';
+  getCanonicalLabTrends: (patientId?: number, documentId?: number) => {
+    const params = new URLSearchParams();
+    if (patientId) params.append('patient_id', patientId.toString());
+    if (documentId) params.append('document_id', documentId.toString());
+    const qs = params.toString() ? `?${params.toString()}` : '';
     return request<LabTrendSeries[]>(`/facts/labs/trends${qs}`);
   },
 
@@ -239,6 +242,17 @@ export const api = {
       method: 'PATCH',
       body: JSON.stringify(data),
     }),
+
+  archiveFact: (factId: number, archived?: boolean, reason?: string) => {
+    const params = new URLSearchParams();
+    if (archived !== undefined) params.append('archived', archived.toString());
+    if (reason) params.append('reason', reason);
+    const qs = params.toString() ? `?${params.toString()}` : '';
+    return request<{ fact_id: number; is_archived: boolean; status: string; message: string }>(
+      `/facts/${factId}/archive${qs}`,
+      { method: 'PATCH' }
+    );
+  },
 
   getFactEvidence: (factId: number) => request<any>(`/facts/${factId}/evidence`),
   getFactConfidence: (factId: number) => request<FactConfidenceDetail>(`/facts/${factId}/confidence`),
@@ -275,7 +289,10 @@ export const api = {
 
   // Clinician
   getSharedPatients: () => request<ClinicianPatient[]>('/clinician/patients'),
-  getPatientLabTrends: (patientId: number) => request<LabTrendSeries[]>(`/clinician/patients/${patientId}/labs`),
+  getPatientLabTrends: (patientId: number, documentId?: number) => {
+    const qs = documentId ? `?document_id=${documentId}` : '';
+    return request<LabTrendSeries[]>(`/clinician/patients/${patientId}/labs${qs}`);
+  },
   getPatientDiscrepancies: (patientId: number) =>
     request<Discrepancy[]>(`/clinician/patients/${patientId}/discrepancies`),
   getAllClinicianDiscrepancies: () =>

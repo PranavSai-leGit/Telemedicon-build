@@ -22,6 +22,8 @@ from app.security.rbac import require_clinician, get_authorized_document_ids_for
 from app.services.gemini_service import gemini_service
 from app.services.handover_pdf import generate_clinical_handover_pdf
 from app.services.audit import log_audit_event
+from app.services.lab_normalizer import extract_numeric_value
+import re
 
 router = APIRouter(prefix="/clinician", tags=["Clinician Experience"])
 
@@ -72,6 +74,7 @@ def get_shared_patients(
 @router.get("/patients/{patient_id}/labs")
 def get_patient_lab_trends(
     patient_id: int,
+    document_id: Optional[int] = Query(None),
     current_user: User = Depends(require_clinician),
     db: Session = Depends(get_db)
 ):
@@ -82,7 +85,7 @@ def get_patient_lab_trends(
     if not allowed_doc_ids:
         raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail="No active sharing grant for this patient.")
 
-    lab_facts = (
+    query = (
         db.query(ExtractedFact, Document.uploaded_filename)
         .join(Document, ExtractedFact.document_id == Document.id)
         .filter(
@@ -90,9 +93,11 @@ def get_patient_lab_trends(
             ExtractedFact.fact_type.in_(["lab_result", "vital"]),
             ExtractedFact.document_id.in_(allowed_doc_ids)
         )
-        .order_by(ExtractedFact.event_date.asc().nullslast(), ExtractedFact.created_at.asc())
-        .all()
     )
+    if document_id is not None:
+        query = query.filter(ExtractedFact.document_id == document_id)
+
+    lab_facts = query.order_by(ExtractedFact.event_date.asc().nullslast(), ExtractedFact.created_at.asc()).all()
 
     trends: Dict[str, Dict[str, Any]] = {}
     seen_points = set()
@@ -101,19 +106,18 @@ def get_patient_lab_trends(
         val_json = dict(fact.value_json or {})
         num_val = val_json.get("numeric_value")
         if num_val is None:
-            num_val = val_json.get("value")
+            num_val = extract_numeric_value(val_json.get("value"))
         if num_val is None:
-            try:
-                num_val = float(fact.normalized_value)
-            except (ValueError, TypeError):
-                continue
-        else:
-            try:
-                num_val = float(num_val)
-            except (ValueError, TypeError):
-                continue
+            num_val = extract_numeric_value(fact.normalized_value)
+        if num_val is None:
+            continue
+        try:
+            num_val = float(num_val)
+        except (ValueError, TypeError):
+            continue
 
-        canonical_id = val_json.get("canonical_id") or f"custom_{fact.normalized_value.lower().replace(' ', '_')}"
+        safe_slug = re.sub(r"[^a-z0-9]+", "_", (fact.normalized_value or "test").lower()).strip("_")
+        canonical_id = val_json.get("canonical_id") or f"custom_{safe_slug}"
         canonical_name = val_json.get("canonical_name") or fact.normalized_value
         orig_test_name = val_json.get("original_test_name") or fact.original_extracted_value or fact.normalized_value
         unit = val_json.get("standard_unit") or fact.unit or val_json.get("unit", "")

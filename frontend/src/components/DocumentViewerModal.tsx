@@ -20,10 +20,12 @@ import {
   Maximize2,
   Loader2,
   ZoomIn,
-  ZoomOut
+  ZoomOut,
+  TrendingUp
 } from 'lucide-react';
 import { api } from '../services/api';
 import { MedicalDocument } from '../types';
+import { LabTrendModal } from './LabTrendModal';
 
 interface DocumentViewerModalProps {
   document: MedicalDocument | null;
@@ -45,6 +47,8 @@ export const DocumentViewerModal: React.FC<DocumentViewerModalProps> = ({
   const [reprocessing, setReprocessing] = useState(false);
   const [zoomLevel, setZoomLevel] = useState(1);
   const [activeTab, setActiveTab] = useState<'facts' | 'metadata'>('facts');
+  const [trendModalOpen, setTrendModalOpen] = useState(false);
+  const [targetTestName, setTargetTestName] = useState<string | undefined>();
 
   if (!isOpen || !doc) return null;
 
@@ -384,9 +388,23 @@ export const DocumentViewerModal: React.FC<DocumentViewerModalProps> = ({
               {/* 3. Laboratory Measurements */}
               {labTests.length > 0 && (
                 <div className="space-y-2">
-                  <div className="flex items-center space-x-1.5 text-xs font-bold text-slate-800 dark:text-slate-200">
-                    <Activity className="w-4 h-4 text-blue-500" />
-                    <span>Laboratory Measurements ({labTests.length})</span>
+                  <div className="flex items-center justify-between">
+                    <div className="flex items-center space-x-1.5 text-xs font-bold text-slate-800 dark:text-slate-200">
+                      <Activity className="w-4 h-4 text-blue-500" />
+                      <span>Laboratory Measurements ({labTests.length})</span>
+                    </div>
+                    <button
+                      type="button"
+                      onClick={() => {
+                        setTargetTestName(undefined);
+                        setTrendModalOpen(true);
+                      }}
+                      className="flex items-center gap-1.5 px-2.5 py-1 text-[11px] font-semibold text-teal-700 dark:text-teal-300 bg-teal-50 dark:bg-teal-950/60 hover:bg-teal-100 dark:hover:bg-teal-900/60 border border-teal-200/60 dark:border-teal-900/40 rounded-lg transition-colors cursor-pointer"
+                      title="Plot longitudinal trends for tests in this report"
+                    >
+                      <TrendingUp className="w-3.5 h-3.5 text-teal-600" />
+                      <span>View Report Lab Trends</span>
+                    </button>
                   </div>
                   <div className="space-y-2">
                     {labTests.map((l: any, i: number) => (
@@ -403,6 +421,17 @@ export const DocumentViewerModal: React.FC<DocumentViewerModalProps> = ({
                               Ref: {l.reference_range}
                             </div>
                           )}
+                          <button
+                            type="button"
+                            onClick={() => {
+                              setTargetTestName(l.name);
+                              setTrendModalOpen(true);
+                            }}
+                            className="mt-1 inline-flex items-center gap-1 text-[10px] font-semibold text-teal-600 dark:text-teal-400 hover:text-teal-700 dark:hover:text-teal-300 hover:underline cursor-pointer"
+                          >
+                            <TrendingUp className="w-3 h-3" />
+                            <span>Plot Trend</span>
+                          </button>
                         </div>
                         <div className="text-right">
                           <span className="text-sm font-bold text-blue-600 dark:text-blue-400">
@@ -462,6 +491,15 @@ export const DocumentViewerModal: React.FC<DocumentViewerModalProps> = ({
           </div>
         </div>
       </div>
+
+      {/* Embedded Laboratory Trend Modal */}
+      <LabTrendModal
+        isOpen={trendModalOpen}
+        onClose={() => setTrendModalOpen(false)}
+        testName={targetTestName}
+        documentId={doc.id}
+        documentName={doc.uploaded_filename}
+      />
     </div>
   );
 };

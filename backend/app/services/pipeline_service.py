@@ -24,7 +24,7 @@ from app.services.gemini_service import gemini_service
 from app.services.confidence_service import ConfidenceScoringService
 from app.services.reconciliation import detect_medication_discrepancies
 from app.services.audit import log_audit_event
-from app.services.lab_normalizer import normalize_lab_test
+from app.services.lab_normalizer import normalize_lab_test, extract_numeric_value
 
 logger = logging.getLogger(__name__)
 
@@ -249,12 +249,10 @@ class DocumentProcessingPipeline:
         # Lab Tests (Normalized against canonical medical lab catalogue)
         for lab in extraction_data.get("lab_tests", []):
             lab_raw_name = (lab.get("name") or "Lab Test").strip()
-            num_val = None
-            try:
-                if lab.get("value") is not None:
-                    num_val = float(lab.get("value"))
-            except (ValueError, TypeError):
-                pass
+            raw_val = lab.get("value")
+            if raw_val is None:
+                raw_val = lab.get("numeric_value")
+            num_val = extract_numeric_value(raw_val)
 
             norm_res = normalize_lab_test(
                 raw_name=lab_raw_name,

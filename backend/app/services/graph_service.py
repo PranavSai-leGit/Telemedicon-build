@@ -1,5 +1,5 @@
 from typing import List, Dict, Any, Set, Optional
-from datetime import datetime
+from datetime import datetime, date, timedelta
 from sqlalchemy.orm import Session
 
 from app.models.fact import ExtractedFact
@@ -130,8 +130,45 @@ def generate_patient_relationship_graph(
                 is_abnormal = True
 
             is_active = True
+            is_temporary = False
+            is_archived = False
+            archived_date = val_json.get("archived_date")
+            archive_reason = val_json.get("archive_reason")
+
             status_str = str(val_json.get("status") or "").lower()
-            if status_str in ("discontinued", "resolved", "inactive", "stopped", "historical"):
+
+            TEMPORARY_CONDITION_KEYWORDS = (
+                "fever", "pyrexia", "acute", "viral", "pharyngitis", "cold", "flu",
+                "influenza", "bronchitis", "gastroenteritis", "nausea", "vomiting",
+                "diarrhea", "headache", "cough", "infection", "sinusitis", "rhinitis",
+                "conjunctivitis", "otitis", "uti", "pain episode"
+            )
+
+            if fact_type == "condition":
+                cond_lower = fact.normalized_value.lower()
+                if any(k in cond_lower for k in TEMPORARY_CONDITION_KEYWORDS):
+                    is_temporary = True
+
+                if val_json.get("is_archived") or status_str in ("resolved", "inactive", "archived", "expired", "discontinued", "historical"):
+                    is_archived = True
+                    is_active = False
+                    if not archive_reason:
+                        archive_reason = f"Condition resolved/archived ({status_str or 'inactive'})"
+                elif is_temporary:
+                    # Temporary conditions (e.g. fever) expire after a few days (5-7 days)
+                    event_d = fact.event_date
+                    if not event_d and doc and doc.document_date:
+                        event_d = doc.document_date
+                    if not event_d and doc and doc.uploaded_at:
+                        event_d = doc.uploaded_at.date()
+                    if event_d:
+                        days_elapsed = (date.today() - event_d).days
+                        if days_elapsed > 5:
+                            is_archived = True
+                            is_active = False
+                            archived_date = (event_d + timedelta(days=5)).strftime("%Y-%m-%d")
+                            archive_reason = f"Temporary acute condition naturally expired ({days_elapsed} days elapsed)"
+            elif status_str in ("discontinued", "resolved", "inactive", "stopped", "historical"):
                 is_active = False
 
             # Calculate Clinical Priority Score (1-10)
@@ -165,7 +202,11 @@ def generate_patient_relationship_graph(
                 is_abnormal=is_abnormal,
                 abnormality_status=abnormality_status,
                 priority_score=priority,
-                canonical_id=canonical_id
+                canonical_id=canonical_id,
+                is_archived=is_archived,
+                is_temporary=is_temporary,
+                archived_date=archived_date,
+                archive_reason=archive_reason
             ))
 
         doc_facts.setdefault(fact.document_id, []).append(fact)
@@ -355,6 +396,10 @@ def generate_patient_relationship_graph(
     for e in edges:
         edge_counts[e.label] = edge_counts.get(e.label, 0) + 1
 
+    # Archive of Expired Conditions: sorted in chronological order
+    archived_conditions = [n for n in nodes if n.type == "condition" and (n.is_archived or not n.is_active)]
+    archived_conditions.sort(key=lambda n: n.date or n.archived_date or "1970-01-01", reverse=True)
+
     return RelationshipGraphResponse(
         patient_id=patient_id,
         patient_name=patient_name,
@@ -362,5 +407,6 @@ def generate_patient_relationship_graph(
         edges=edges,
         node_counts=node_counts,
         edge_counts=edge_counts,
-        overview_node_ids=overview_node_ids
+        overview_node_ids=overview_node_ids,
+        archived_conditions=archived_conditions
     )

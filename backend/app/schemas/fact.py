@@ -92,6 +92,10 @@ class GraphNode(BaseModel):
     abnormality_status: Optional[str] = "unknown"
     priority_score: int = 5
     canonical_id: Optional[str] = None
+    is_archived: bool = False
+    is_temporary: bool = False
+    archived_date: Optional[str] = None
+    archive_reason: Optional[str] = None
 
 
 class GraphEdge(BaseModel):
@@ -116,6 +120,7 @@ class RelationshipGraphResponse(BaseModel):
     node_counts: Dict[str, int] = {}
     edge_counts: Dict[str, int] = {}
     overview_node_ids: List[str] = []  # Curated subset for initial clean overview
+    archived_conditions: List[GraphNode] = []  # Expired/archived temporary conditions sorted chronologically
 
 
 class LabObservationPoint(BaseModel):

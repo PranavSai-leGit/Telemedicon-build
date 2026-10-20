@@ -224,6 +224,7 @@ export const PatientReviewPage: React.FC = () => {
           loading={graphLoading}
           patientId={pId}
           onJumpToTimeline={(factId) => setActiveTab('timeline')}
+          onRefreshGraph={fetchGraph}
         />
       )}
 

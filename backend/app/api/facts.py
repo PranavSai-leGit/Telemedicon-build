@@ -14,6 +14,8 @@ from app.security.rbac import get_current_user, require_clinician_or_patient
 from app.services.reconciliation import detect_medication_discrepancies
 from app.services.graph_service import generate_patient_relationship_graph
 from app.services.audit import log_audit_event
+from app.services.lab_normalizer import extract_numeric_value
+import re
 
 router = APIRouter(prefix="/facts", tags=["Extracted Facts & Timeline"])
 
@@ -193,6 +195,7 @@ def get_timeline_facts(
 @router.get("/labs/trends")
 def get_canonical_lab_trends(
     patient_id: Optional[int] = Query(None),
+    document_id: Optional[int] = Query(None),
     current_user: User = Depends(require_clinician_or_patient),
     db: Session = Depends(get_db)
 ):
@@ -237,6 +240,8 @@ def get_canonical_lab_trends(
     )
     if allowed_doc_ids is not None:
         query = query.filter(ExtractedFact.document_id.in_(allowed_doc_ids))
+    if document_id is not None:
+        query = query.filter(ExtractedFact.document_id == document_id)
 
     lab_facts = query.order_by(ExtractedFact.event_date.asc().nullslast(), ExtractedFact.created_at.asc()).all()
 
@@ -247,19 +252,18 @@ def get_canonical_lab_trends(
         val_json = dict(fact.value_json or {})
         num_val = val_json.get("numeric_value")
         if num_val is None:
-            num_val = val_json.get("value")
+            num_val = extract_numeric_value(val_json.get("value"))
         if num_val is None:
-            try:
-                num_val = float(fact.normalized_value)
-            except (ValueError, TypeError):
-                continue
-        else:
-            try:
-                num_val = float(num_val)
-            except (ValueError, TypeError):
-                continue
+            num_val = extract_numeric_value(fact.normalized_value)
+        if num_val is None:
+            continue
+        try:
+            num_val = float(num_val)
+        except (ValueError, TypeError):
+            continue
 
-        canonical_id = val_json.get("canonical_id") or f"custom_{fact.normalized_value.lower().replace(' ', '_')}"
+        safe_slug = re.sub(r"[^a-z0-9]+", "_", (fact.normalized_value or "test").lower()).strip("_")
+        canonical_id = val_json.get("canonical_id") or f"custom_{safe_slug}"
         canonical_name = val_json.get("canonical_name") or fact.normalized_value
         orig_test_name = val_json.get("original_test_name") or fact.original_extracted_value or fact.normalized_value
         unit = val_json.get("standard_unit") or fact.unit or val_json.get("unit", "")
@@ -404,6 +408,58 @@ def update_fact(
     )
 
     return resp
+ 
+@router.patch("/{fact_id}/archive")
+def toggle_condition_archive(
+    fact_id: int,
+    archived: Optional[bool] = Query(None),
+    reason: Optional[str] = Query(None),
+    current_user: User = Depends(require_clinician_or_patient),
+    db: Session = Depends(get_db)
+):
+    """
+    Archive or restore a condition (e.g. for temporary acute conditions like fever once elapsed).
+    """
+    fact = db.query(ExtractedFact).filter(ExtractedFact.id == fact_id).first()
+    if not fact:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Fact not found.")
+
+    if current_user.role == UserRole.PATIENT.value and fact.patient_id != current_user.id:
+        raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail="Access denied.")
+
+    val_json = dict(fact.value_json or {})
+    current_archived = bool(val_json.get("is_archived", False) or val_json.get("status") in ("resolved", "inactive", "archived", "expired"))
+    new_archived = (not current_archived) if archived is None else archived
+
+    val_json["is_archived"] = new_archived
+    val_json["status"] = "resolved" if new_archived else "active"
+    if new_archived:
+        val_json["archived_date"] = datetime.now(timezone.utc).strftime("%Y-%m-%d")
+        val_json["archive_reason"] = reason or "Condition expired or resolved."
+    else:
+        val_json.pop("archive_reason", None)
+        val_json.pop("archived_date", None)
+
+    fact.value_json = val_json
+    db.commit()
+    db.refresh(fact)
+
+    log_audit_event(
+        db,
+        action="CONDITION_ARCHIVE_TOGGLE",
+        resource_type="extracted_fact",
+        resource_id=str(fact.id),
+        actor_user_id=current_user.id,
+        outcome="success",
+        details={"is_archived": new_archived, "fact_id": fact.id}
+    )
+
+    return {
+        "fact_id": fact.id,
+        "is_archived": new_archived,
+        "status": val_json["status"],
+        "message": "Condition archived successfully." if new_archived else "Condition restored to active."
+    }
 
 @router.get("/{fact_id}/evidence")
 def get_fact_evidence(

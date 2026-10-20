@@ -27,6 +27,7 @@ from app.services.reconciliation import detect_medication_discrepancies
 from app.services.audit import log_audit_event
 from app.core.config import settings, BASE_DIR
 from pathlib import Path
+from app.services.lab_normalizer import normalize_lab_test, extract_numeric_value
 
 from app.services.pipeline_service import DocumentProcessingPipeline
 from app.security.rate_limiter import check_upload_rate_limit
@@ -362,13 +363,33 @@ def save_manual_entry(
         ))
 
     for lab in entry.lab_tests:
+        lab_name = lab.get("name", "Lab Test")
+        num_val = extract_numeric_value(lab.get("value") or lab.get("numeric_value"))
+        norm_res = normalize_lab_test(
+            raw_name=lab_name,
+            value=num_val,
+            raw_unit=lab.get("unit"),
+            raw_reference_range=lab.get("reference_range")
+        )
+        lab_payload = dict(lab)
+        lab_payload.update({
+            "canonical_id": norm_res.canonical_id,
+            "canonical_name": norm_res.canonical_name,
+            "numeric_value": num_val,
+            "value": num_val if num_val is not None else lab.get("value"),
+            "standard_unit": norm_res.standard_unit or lab.get("unit"),
+            "abnormality_status": norm_res.abnormality_status,
+            "is_abnormal": norm_res.is_abnormal,
+            "reference_range": norm_res.reference_range
+        })
         db.add(ExtractedFact(
             patient_id=current_user.id,
             document_id=doc.id,
             fact_type=FactType.LAB_RESULT.value,
-            normalized_value=lab.get("name", "Lab Test"),
-            value_json=lab,
-            unit=lab.get("unit"),
+            normalized_value=norm_res.canonical_name,
+            original_extracted_value=lab_name,
+            value_json=lab_payload,
+            unit=norm_res.standard_unit or lab.get("unit"),
             event_date=entry.event_date or entry.document_date,
             source_page=1,
             source_excerpt="User manual structured entry",
@@ -472,6 +493,31 @@ def reprocess_document(
     ]:
         for item in items:
             val_name = item.get("name") or item.get("allergen") or "Extracted Item"
+            orig_name = val_name
+            item_payload = dict(item)
+            unit_val = item.get("unit")
+
+            if item_type == FactType.LAB_RESULT.value:
+                num_val = extract_numeric_value(item.get("value") or item.get("numeric_value"))
+                norm_res = normalize_lab_test(
+                    raw_name=val_name,
+                    value=num_val,
+                    raw_unit=item.get("unit"),
+                    raw_reference_range=item.get("reference_range")
+                )
+                val_name = norm_res.canonical_name
+                unit_val = norm_res.standard_unit or item.get("unit")
+                item_payload.update({
+                    "canonical_id": norm_res.canonical_id,
+                    "canonical_name": norm_res.canonical_name,
+                    "numeric_value": num_val,
+                    "value": num_val if num_val is not None else item.get("value"),
+                    "standard_unit": unit_val,
+                    "abnormality_status": norm_res.abnormality_status,
+                    "is_abnormal": norm_res.is_abnormal,
+                    "reference_range": norm_res.reference_range
+                })
+
             exc = item.get("source_excerpt")
             sp = item.get("source_page", 1)
 
@@ -486,7 +532,7 @@ def reprocess_document(
             conf = ConfidenceScoringService.evaluate_claim_confidence(
                 fact_type=item_type,
                 normalized_value=val_name,
-                value_json=item,
+                value_json=item_payload,
                 source_excerpt=exc,
                 source_text=extracted_text,
                 source_page=sp,
@@ -500,8 +546,9 @@ def reprocess_document(
                 document_id=doc.id,
                 fact_type=item_type,
                 normalized_value=val_name,
-                value_json=item,
-                unit=item.get("unit"),
+                original_extracted_value=orig_name if item_type == FactType.LAB_RESULT.value else None,
+                value_json=item_payload,
+                unit=unit_val,
                 event_date=doc.event_date or doc.document_date,
                 source_page=sp,
                 source_excerpt=exc,

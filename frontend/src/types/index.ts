@@ -345,6 +345,10 @@ export interface GraphNode {
   abnormality_status?: string;
   priority_score?: number;
   canonical_id?: string;
+  is_archived?: boolean;
+  is_temporary?: boolean;
+  archived_date?: string;
+  archive_reason?: string;
 }
 
 export interface GraphEdge {
@@ -369,6 +373,7 @@ export interface RelationshipGraphResponse {
   node_counts: Record<string, number>;
   edge_counts: Record<string, number>;
   overview_node_ids?: string[];
+  archived_conditions?: GraphNode[];
 }
 
 // Clinician Portal Expanded Interfaces

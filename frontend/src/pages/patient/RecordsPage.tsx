@@ -14,11 +14,13 @@ import {
   Plus,
   Eye,
   Cpu,
-  Loader2
+  Loader2,
+  TrendingUp
 } from 'lucide-react';
 import { api } from '../../services/api';
 import { MedicalDocument } from '../../types';
 import { DocumentViewerModal } from '../../components/DocumentViewerModal';
+import { LabTrendModal } from '../../components/LabTrendModal';
 import { Pagination } from '../../components/Pagination';
 
 export const RecordsPage: React.FC = () => {
@@ -41,6 +43,7 @@ export const RecordsPage: React.FC = () => {
   // AI & Viewer Modals
   const [aiConfigured, setAiConfigured] = useState(false);
   const [viewerDoc, setViewerDoc] = useState<MedicalDocument | null>(null);
+  const [labTrendModalDoc, setLabTrendModalDoc] = useState<MedicalDocument | null>(null);
   const [reprocessingId, setReprocessingId] = useState<number | null>(null);
 
   // Manual Entry Modal
@@ -488,6 +491,15 @@ export const RecordsPage: React.FC = () => {
                       >
                         <Eye className="w-4 h-4" />
                       </button>
+                      {(doc.document_type === 'laboratory_report' || (doc.extracted_data?.lab_tests && doc.extracted_data.lab_tests.length > 0)) && (
+                        <button
+                          onClick={() => setLabTrendModalDoc(doc)}
+                          className="p-1.5 text-teal-600 hover:text-teal-700 dark:text-teal-400 dark:hover:text-teal-300 hover:bg-teal-50 dark:hover:bg-teal-950/80 rounded-lg transition-colors inline-block"
+                          title="View laboratory trends for this report"
+                        >
+                          <TrendingUp className="w-4 h-4" />
+                        </button>
+                      )}
                       <button
                         onClick={() => handleReprocess(doc.id)}
                         disabled={reprocessingId === doc.id}
@@ -567,6 +579,14 @@ export const RecordsPage: React.FC = () => {
           setManualDoc(d);
         }}
         aiConfigured={aiConfigured}
+      />
+
+      {/* Laboratory Trends Modal */}
+      <LabTrendModal
+        isOpen={Boolean(labTrendModalDoc)}
+        onClose={() => setLabTrendModalDoc(null)}
+        documentId={labTrendModalDoc?.id}
+        documentName={labTrendModalDoc?.uploaded_filename}
       />
 
       {/* Manual Structured Entry Modal */}
